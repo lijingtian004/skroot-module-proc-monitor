@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>进程行为监控 — SKRoot Pro</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- 顶部状态栏 -->
+    <header class="header">
+      <div class="header-left">
+        <span class="logo">🔍</span>
+        <h1>进程监控</h1>
+      </div>
+      <div class="header-right">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">连接中...</span>
+      </div>
+    </header>
+
+    <!-- 统计卡片 -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div class="stat-num" id="statTotal">0</div>
+        <div class="stat-label">总事件</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="statAlerts">0</div>
+        <div class="stat-label">告警</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="statExec">0</div>
+        <div class="stat-label">新进程</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="statExit">0</div>
+        <div class="stat-label">退出</div>
+      </div>
+    </div>
+
+    <!-- Tab 切换 -->
+    <div class="tab-bar">
+      <button class="tab active" data-tab="live" onclick="switchTab('live')">
+        <span class="tab-icon">📡</span> 实时
+      </button>
+      <button class="tab" data-tab="alerts" onclick="switchTab('alerts')">
+        <span class="tab-icon">🚨</span> 告警
+        <span class="badge" id="alertBadge" style="display:none">0</span>
+      </button>
+      <button class="tab" data-tab="history" onclick="switchTab('history')">
+        <span class="tab-icon">📋</span> 历史
+      </button>
+    </div>
+
+    <!-- 实时事件面板 -->
+    <div class="panel active" id="panel-live">
+      <div class="panel-toolbar">
+        <button class="btn-sm" onclick="manualScan()">🔄 手动扫描</button>
+        <label class="toggle-label">
+          <input type="checkbox" id="autoScroll" checked> 自动滚动
+        </label>
+      </div>
+      <div class="event-list" id="liveList">
+        <div class="loading">等待事件...</div>
+      </div>
+    </div>
+
+    <!-- 告警面板 -->
+    <div class="panel" id="panel-alerts">
+      <div class="panel-toolbar">
+        <span class="alert-summary" id="alertSummary">暂无告警</span>
+      </div>
+      <div class="event-list" id="alertList">
+        <div class="empty-state">
+          <span class="empty-icon">✅</span>
+          <p>未检测到可疑进程</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 历史面板 -->
+    <div class="panel" id="panel-history">
+      <div class="panel-toolbar">
+        <input type="text" class="search-input" id="searchInput" placeholder="搜索进程名或PID..." oninput="filterHistory()">
+        <select class="filter-select" id="filterType" onchange="filterHistory()">
+          <option value="all">全部</option>
+          <option value="exec">新进程</option>
+          <option value="exit">退出</option>
+          <option value="alert">告警</option>
+        </select>
+      </div>
+      <div class="event-list" id="historyList">
+        <div class="loading">加载中...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 事件详情浮层 -->
+  <div class="modal-overlay" id="modalOverlay" onclick="closeModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="modalTitle">事件详情</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
