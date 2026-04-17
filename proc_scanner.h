@@ -181,3 +181,24 @@ struct ChargingInfo {
 
 // 读取当前充电信息
 ChargingInfo charging_get_info();
+
+// ============ 应用功耗追踪 ============
+
+// 单个应用(UID)的功耗信息
+struct AppPowerInfo {
+    uid_t   uid;
+    char    package_name[128];  // 包名（从 cmdline 提取）
+    char    label[64];          // 显示名（通常是 comm）
+    double  cpu_time_sec;       // 累计 CPU 时间（秒）
+    double  cpu_usage_pct;      // CPU 占用率 %（采样周期内）
+    int64_t mem_rss_kb;         // RSS 内存 KB
+    int64_t io_read_bytes;      // 磁盘读取字节
+    int64_t io_write_bytes;     // 磁盘写入字节
+    int     proc_count;         // 该 UID 下进程数
+    double  power_score;        // 功耗评分（相对值 0-100）
+};
+
+// 应用功耗追踪接口
+void power_tracker_init();
+void power_tracker_sample();    // 采样一次（后台线程周期调用）
+std::vector<AppPowerInfo> power_tracker_get_top(int n);  // 取 top N 功耗应用

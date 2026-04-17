@@ -133,6 +133,14 @@
       <div class="charging-supplies" id="chargingSupplies"></div>
     </div>
 
+    <div class="page" id="page-drain">
+      <div class="page-title">应用功耗</div>
+      <div class="drain-summary" id="drainSummary"></div>
+      <div class="drain-list" id="drainList">
+        <div class="loading">采样中...</div>
+      </div>
+    </div>
+
     <!-- 底部导航 -->
     <nav class="bottom-nav">
       <button class="nav-btn active" data-page="overview" onclick="switchPage('overview')">
@@ -156,6 +164,10 @@
       <button class="nav-btn" data-page="power" onclick="switchPage('power')">
         <span class="nav-icon">▪</span>
         <span class="nav-label">电源</span>
+      </button>
+      <button class="nav-btn" data-page="drain" onclick="switchPage('drain')">
+        <span class="nav-icon">▪</span>
+        <span class="nav-label">功耗</span>
       </button>
     </nav>
   </div>

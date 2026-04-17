@@ -125,6 +125,28 @@ static std::string build_charging_json(const ChargingInfo& ch) {
     return result;
 }
 
+static std::string build_power_json(const std::vector<AppPowerInfo>& apps) {
+    cJSON* arr = cJSON_CreateArray();
+    for (auto& app : apps) {
+        cJSON* o = cJSON_CreateObject();
+        cJSON_AddNumberToObject(o, "uid", app.uid);
+        cJSON_AddStringToObject(o, "package", app.package_name);
+        cJSON_AddStringToObject(o, "label", app.label);
+        cJSON_AddNumberToObject(o, "cpu_pct", (int)(app.cpu_usage_pct * 10) / 10.0);
+        cJSON_AddNumberToObject(o, "mem_mb", (int)(app.mem_rss_kb / 102.4) / 10.0);
+        cJSON_AddNumberToObject(o, "io_mb",
+            (int)((app.io_read_bytes + app.io_write_bytes) / 1024.0 / 102.4) / 10.0);
+        cJSON_AddNumberToObject(o, "procs", app.proc_count);
+        cJSON_AddNumberToObject(o, "score", (int)(app.power_score * 10) / 10.0);
+        cJSON_AddItemToArray(arr, o);
+    }
+    char* raw = cJSON_PrintUnformatted(arr);
+    std::string result(raw);
+    cJSON_free(raw);
+    cJSON_Delete(arr);
+    return result;
+}
+
 // ============ 模块入口 ============
 
 static std::string g_module_dir;
@@ -138,6 +160,7 @@ int skroot_module_main(const char* root_key, const char* module_private_dir) {
 
     // 初始化扫描器
     proc_scanner_init(module_private_dir);
+    power_tracker_init();
 
     // 启动后台守护线程
     proc_scanner_start();
@@ -159,6 +182,7 @@ public:
         // 在 WebUI 进程中也需要启动扫描器
         proc_scanner_init(module_private_dir);
         proc_scanner_start();
+        power_tracker_init();
     }
 
     bool handleGet(CivetServer* server, struct mg_connection* conn,
@@ -210,6 +234,21 @@ public:
         if (path == "/api/procs") {
             auto procs = proc_scanner_get_all_procs();
             std::string json = build_procs_json(procs);
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
+        if (path == "/api/power-drain") {
+            int n = 20;
+            if (!query.empty()) {
+                auto pos = query.find("limit=");
+                if (pos != std::string::npos) {
+                    int parsed = atoi(query.c_str() + pos + 6);
+                    if (parsed > 0 && parsed <= 100) n = parsed;
+                }
+            }
+            power_tracker_sample();
+            auto apps = power_tracker_get_top(n);
+            std::string json = build_power_json(apps);
             kernel_module::webui::send_text(conn, 200, json);
             return true;
         }
@@ -283,6 +322,19 @@ public:
             return true;
         }
 
+        if (path == "/api/power-drain") {
+            int n = 20;
+            if (!body.empty()) {
+                int parsed = atoi(body.c_str());
+                if (parsed > 0 && parsed <= 100) n = parsed;
+            }
+            power_tracker_sample();
+            auto apps = power_tracker_get_top(n);
+            std::string json = build_power_json(apps);
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
+
         return false;
     }
 
@@ -296,7 +348,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("1.2.2")
+SKROOT_MODULE_VERSION("2.0.3")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")

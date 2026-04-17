@@ -472,3 +472,238 @@ ChargingInfo charging_get_info() {
 
     return info;
 }
+
+// ============ 应用功耗追踪 ============
+
+#include <vector>
+
+// 每个 UID 的采样数据
+struct UidSample {
+    uid_t uid;
+    double cpu_time_sec;    // 累计 CPU 时间
+    int64_t mem_rss_kb;     // RSS
+    int64_t io_read;        // 读字节
+    int64_t io_write;       // 写字节
+    int     proc_count;
+    char    comm[64];       // 最活跃进程名
+    char    cmdline[128];   // 命令行（取包名用）
+    int64_t cmdline_inode;  // cmdline 的 inode 用于去重
+};
+
+static std::unordered_map<uid_t, UidSample> g_prev_samples;
+static std::unordered_map<uid_t, AppPowerInfo> g_power_cache;
+static double g_last_sample_time = 0;
+static double g_total_cpu_delta = 0;  // 总 CPU 增量（用于算百分比）
+
+// 从 /proc/<pid>/stat 读 CPU 时间（user + system，单位秒）
+static double read_proc_cpu_time(pid_t pid) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+    FILE* f = fopen(path, "r");
+    if (!f) return -1;
+    char buf[1024];
+    if (!fgets(buf, sizeof(buf), f)) { fclose(f); return -1; }
+    fclose(f);
+
+    // 跳过 comm（可能含空格/括号）
+    char* p = strchr(buf, ')');
+    if (!p) return -1;
+    p += 2; // skip ") "
+
+    unsigned long utime = 0, stime = 0;
+    // field 14=utime, 15=stime (从 ) 后第12、13个字段)
+    int field = 0;
+    char* tok = strtok(p, " ");
+    while (tok && field < 15) {
+        if (field == 11) utime = strtoul(tok, nullptr, 10);
+        if (field == 12) stime = strtoul(tok, nullptr, 10);
+        tok = strtok(nullptr, " ");
+        field++;
+    }
+    long clk = sysconf(_SC_CLK_TCK);
+    if (clk <= 0) clk = 100;
+    return (double)(utime + stime) / (double)clk;
+}
+
+// 从 /proc/<pid>/status 读 RSS
+static int64_t read_proc_rss_kb(pid_t pid) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/status", pid);
+    FILE* f = fopen(path, "r");
+    if (!f) return 0;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "VmRSS:", 6) == 0) {
+            fclose(f);
+            return strtoll(line + 6, nullptr, 10);
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+// 从 /proc/<pid>/io 读磁盘 IO
+static void read_proc_io(pid_t pid, int64_t& rbytes, int64_t& wbytes) {
+    rbytes = wbytes = 0;
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/io", pid);
+    FILE* f = fopen(path, "r");
+    if (!f) return;  // 可能没权限
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "read_bytes:", 11) == 0)
+            rbytes = strtoll(line + 11, nullptr, 10);
+        else if (strncmp(line, "write_bytes:", 12) == 0)
+            wbytes = strtoll(line + 12, nullptr, 10);
+    }
+    fclose(f);
+}
+
+void power_tracker_init() {
+    g_prev_samples.clear();
+    g_power_cache.clear();
+    g_last_sample_time = 0;
+    g_total_cpu_delta = 0;
+}
+
+void power_tracker_sample() {
+    double now = (double)time(nullptr);
+    double dt = g_last_sample_time > 0 ? (now - g_last_sample_time) : 1.0;
+    if (dt < 0.5) return;  // 至少间隔 0.5 秒
+
+    // 收集当前快照
+    std::unordered_map<uid_t, UidSample> cur_samples;
+    double total_cpu = 0;
+
+    DIR* dir = opendir("/proc");
+    if (!dir) return;
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != nullptr) {
+        if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
+        pid_t pid = (pid_t)atoi(ent->d_name);
+
+        // 读 UID
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/%d/status", pid);
+        FILE* f = fopen(path, "r");
+        if (!f) continue;
+        uid_t uid = (uid_t)-1;
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            if (strncmp(line, "Uid:", 4) == 0) {
+                uid = (uid_t)strtoul(line + 4, nullptr, 10);
+                break;
+            }
+        }
+        fclose(f);
+        if (uid == (uid_t)-1) continue;
+
+        // 跳过 root (0) 和 system (1000) — 它们不是用户应用
+        // 但保留 1000+ 的应用 UID
+        if (uid < 10000) continue;
+
+        double cpu = read_proc_cpu_time(pid);
+        if (cpu < 0) continue;
+
+        int64_t rss = read_proc_rss_kb(pid);
+        int64_t io_r, io_w;
+        read_proc_io(pid, io_r, io_w);
+
+        // 读 comm
+        char comm[64] = {};
+        snprintf(path, sizeof(path), "/proc/%d/comm", pid);
+        f = fopen(path, "r");
+        if (f) { fgets(comm, sizeof(comm), f); fclose(f); }
+        // trim newline
+        char* nl = strchr(comm, '\n');
+        if (nl) *nl = 0;
+
+        // 读 cmdline
+        char cmdline[128] = {};
+        snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+        f = fopen(path, "r");
+        if (f) { fread(cmdline, 1, sizeof(cmdline) - 1, f); fclose(f); }
+
+        auto& s = cur_samples[uid];
+        s.uid = uid;
+        s.cpu_time_sec += cpu;
+        s.mem_rss_kb += rss;
+        s.io_read += io_r;
+        s.io_write += io_w;
+        s.proc_count++;
+        // 用最长 cmdline 作为标识（通常是包名）
+        if (strlen(cmdline) > strlen(s.cmdline))
+            strncpy(s.cmdline, cmdline, sizeof(s.cmdline) - 1);
+        if (strlen(comm) > 0)
+            strncpy(s.comm, comm, sizeof(s.comm) - 1);
+    }
+    closedir(dir);
+
+    // 计算增量
+    double total_delta = 0;
+    std::unordered_map<uid_t, double> deltas;
+
+    for (auto& [uid, cur] : cur_samples) {
+        double prev_cpu = 0;
+        auto it = g_prev_samples.find(uid);
+        if (it != g_prev_samples.end())
+            prev_cpu = it->second.cpu_time_sec;
+
+        double delta = cur.cpu_time_sec - prev_cpu;
+        if (delta < 0) delta = 0;  // 进程重建
+        deltas[uid] = delta;
+        total_delta += delta;
+    }
+
+    g_total_cpu_delta = total_delta;
+    g_last_sample_time = now;
+
+    // 更新功耗缓存
+    g_power_cache.clear();
+    for (auto& [uid, cur] : cur_samples) {
+        AppPowerInfo info = {};
+        info.uid = uid;
+        info.cpu_time_sec = cur.cpu_time_sec;
+        info.cpu_usage_pct = (total_delta > 0) ? (deltas[uid] / total_delta * 100.0) : 0;
+        info.mem_rss_kb = cur.mem_rss_kb;
+        info.io_read_bytes = cur.io_read;
+        info.io_write_bytes = cur.io_write;
+        info.proc_count = cur.proc_count;
+
+        // 提取包名：cmdline 通常是 /system/bin/app_process64 com.xxx.xxx
+        const char* pkg = cur.cmdline;
+        // 找最后一个空格后的部分
+        const char* sp = strrchr(cur.cmdline, ' ');
+        if (sp && *(sp + 1)) pkg = sp + 1;
+        strncpy(info.package_name, pkg, sizeof(info.package_name) - 1);
+        strncpy(info.label, cur.comm, sizeof(info.label) - 1);
+
+        // 功耗评分 = CPU权重60% + 内存权重20% + IO权重20%
+        // CPU: 占用率直接用
+        // 内存: 以 500MB 为基准
+        // IO: 以 100MB/s 为基准
+        double mem_score = (cur.mem_rss_kb / 1024.0 / 500.0) * 100.0;
+        double io_score = ((cur.io_read + cur.io_write) / 1024.0 / 1024.0 / 100.0 / dt) * 100.0;
+        info.power_score = info.cpu_usage_pct * 0.6 +
+                           std::min(mem_score, 100.0) * 0.2 +
+                           std::min(io_score, 100.0) * 0.2;
+        if (info.power_score > 100) info.power_score = 100;
+
+        g_power_cache[uid] = info;
+    }
+
+    g_prev_samples = std::move(cur_samples);
+}
+
+std::vector<AppPowerInfo> power_tracker_get_top(int n) {
+    std::vector<AppPowerInfo> result;
+    for (auto& [uid, info] : g_power_cache) {
+        result.push_back(info);
+    }
+    std::sort(result.begin(), result.end(),
+        [](const AppPowerInfo& a, const AppPowerInfo& b) {
+            return a.power_score > b.power_score;
+        });
+    if ((int)result.size() > n) result.resize(n);
+    return result;
+}

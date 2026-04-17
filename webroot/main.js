@@ -94,6 +94,77 @@ async function fetchCharging() {
   } catch (e) {}
 }
 
+let drainData = [];
+async function fetchDrain() {
+  const raw = await api('/api/power-drain', '20');
+  if (raw) try {
+    drainData = JSON.parse(raw);
+    renderDrainInfo();
+  } catch (e) {}
+}
+
+function renderDrainInfo() {
+  const sum = document.getElementById('drainSummary');
+  const list = document.getElementById('drainList');
+  if (!drainData.length) {
+    list.innerHTML = '<div class="empty-hint">暂无数据，等待首次采样...</div>';
+    return;
+  }
+  // 汇总
+  let totalCpu = 0, totalMem = 0, totalProcs = 0;
+  drainData.forEach(a => { totalCpu += a.cpu_pct; totalMem += a.mem_mb; totalProcs += a.procs; });
+  sum.innerHTML = `
+    <div class="drain-sum-grid">
+      <div class="drain-sum-item"><span class="drain-sum-val">${drainData.length}</span><span class="drain-sum-label">应用</span></div>
+      <div class="drain-sum-item"><span class="drain-sum-val">${totalCpu.toFixed(1)}%</span><span class="drain-sum-label">CPU</span></div>
+      <div class="drain-sum-item"><span class="drain-sum-val">${totalMem.toFixed(0)}M</span><span class="drain-sum-label">内存</span></div>
+      <div class="drain-sum-item"><span class="drain-sum-val">${totalProcs}</span><span class="drain-sum-label">进程</span></div>
+    </div>`;
+  // 列表
+  let html = '';
+  drainData.forEach((a, i) => {
+    const bar = Math.min(a.score, 100);
+    const color = a.score > 50 ? 'var(--red)' : a.score > 20 ? 'var(--amber)' : 'var(--green)';
+    const name = esc(a.package || a.label || `UID ${a.uid}`);
+    html += `<div class="drain-row" onclick="showDrainDetail(${i})">
+      <div class="drain-rank">${i + 1}</div>
+      <div class="drain-info">
+        <div class="drain-name">${name}</div>
+        <div class="drain-stats">
+          <span>CPU ${a.cpu_pct}%</span>
+          <span>内存 ${a.mem_mb}M</span>
+          <span>IO ${a.io_mb}M</span>
+          <span>${a.procs}进程</span>
+        </div>
+        <div class="drain-bar-track"><div class="drain-bar-fill" style="width:${bar}%;background:${color}"></div></div>
+      </div>
+      <div class="drain-score" style="color:${color}">${a.score.toFixed(0)}</div>
+    </div>`;
+  });
+  list.innerHTML = html;
+}
+
+function showDrainDetail(i) {
+  const a = drainData[i];
+  if (!a) return;
+  const overlay = document.getElementById('modalOverlay');
+  const body = document.getElementById('modalBody');
+  const title = document.getElementById('modalTitle');
+  title.textContent = a.package || a.label || `UID ${a.uid}`;
+  body.innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-row"><span class="detail-label">UID</span><span class="detail-value">${a.uid}</span></div>
+      <div class="detail-row"><span class="detail-label">包名</span><span class="detail-value">${esc(a.package || '--')}</span></div>
+      <div class="detail-row"><span class="detail-label">进程名</span><span class="detail-value">${esc(a.label)}</span></div>
+      <div class="detail-row"><span class="detail-label">CPU 占用</span><span class="detail-value">${a.cpu_pct}%</span></div>
+      <div class="detail-row"><span class="detail-label">内存占用</span><span class="detail-value">${a.mem_mb} MB</span></div>
+      <div class="detail-row"><span class="detail-label">IO 总量</span><span class="detail-value">${a.io_mb} MB</span></div>
+      <div class="detail-row"><span class="detail-label">进程数</span><span class="detail-value">${a.procs}</span></div>
+      <div class="detail-row"><span class="detail-label">功耗评分</span><span class="detail-value">${a.score.toFixed(1)}</span></div>
+    </div>`;
+  overlay.classList.add('show');
+}
+
 async function manualScan() {
   await api('/api/scan');
   setTimeout(pollAll, 300);
@@ -109,6 +180,7 @@ function switchPage(page) {
   if (page === 'alerts') renderAlertList();
   if (page === 'log') filterHistory();
   if (page === 'power') fetchCharging();
+  if (page === 'drain') fetchDrain();
 }
 
 // ============ UI Updates ============

@@ -554,6 +554,49 @@ body {
 .supply-kv .k { color: var(--text-3); }
 .supply-kv .v { color: var(--text); font-weight: 600; }
 
+/* ===== 应用功耗 ===== */
+.drain-summary { margin-bottom: 14px; }
+.drain-sum-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.drain-sum-item {
+  background: var(--surface-2); border-radius: 10px; padding: 10px 6px;
+  text-align: center; display: flex; flex-direction: column; gap: 2px;
+}
+.drain-sum-val { font-size: 18px; font-weight: 700; color: var(--text); }
+.drain-sum-label { font-size: 10px; color: var(--text-3); }
+
+.drain-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; background: var(--surface-2); border-radius: 10px;
+  margin-bottom: 6px; cursor: pointer; transition: background 0.15s;
+}
+.drain-row:active { background: var(--surface-3); }
+.drain-rank {
+  width: 24px; height: 24px; border-radius: 6px;
+  background: var(--surface-3); color: var(--text-3);
+  font-size: 11px; font-weight: 700; text-align: center; line-height: 24px;
+  flex-shrink: 0;
+}
+.drain-row:nth-child(1) .drain-rank { background: var(--amber); color: #000; }
+.drain-row:nth-child(2) .drain-rank { background: var(--text-3); color: #000; }
+.drain-row:nth-child(3) .drain-rank { background: var(--accent-2); color: #fff; }
+.drain-info { flex: 1; min-width: 0; }
+.drain-name {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.drain-stats {
+  display: flex; gap: 8px; font-size: 10px; color: var(--text-3);
+  margin-top: 3px;
+}
+.drain-bar-track {
+  height: 3px; background: var(--surface-3); border-radius: 2px;
+  margin-top: 5px; overflow: hidden;
+}
+.drain-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.drain-score { font-size: 16px; font-weight: 700; flex-shrink: 0; }
+
 /* ===== Responsive ===== */
 @media (max-width: 380px) {
   .stats-grid { grid-template-columns: 1fr 1fr; }
