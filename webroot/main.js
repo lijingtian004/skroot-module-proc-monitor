@@ -143,59 +143,53 @@ function renderDrainInfo() {
     toggle.textContent = drainMode === 'app' ? '按应用估算' : '整机电池输出';
     toggle.className = drainMode === 'app' ? 'drain-toggle mode-app' : 'drain-toggle mode-sys';
   }
-  // 显示/隐藏提示文字
+  // 显示/隐藏提示文字，按模式切换内容
   const note = document.getElementById('drainNote');
-  if (note) note.style.display = drainMode === 'app' ? '' : 'none';
-
-  if (drainMode === 'system') {
-    // 整机电池输出模式
-    const sysW = (drainSysPower / 1000).toFixed(2);
-    const statusMap = { 'Charging': '充电中', 'Discharging': '放电中', 'Full': '已充满', 'Not charging': '未充电' };
-    const statusCN = statusMap[drainBatStatus] || drainBatStatus || '--';
-    const tempC = drainBatTemp > 0 ? (drainBatTemp / 10).toFixed(1) + '°C' : '--';
-    const curMA = drainBatCurrent != -1 ? drainBatCurrent + 'mA' : '--';
-    const volMV = drainBatVoltage != -1 ? drainBatVoltage + 'mV' : '--';
-    const levelStr = drainBatLevel >= 0 ? drainBatLevel + '%' : '--';
-    const speedMap = { 'super': '超级快充', 'fast': '快充', 'normal': '标准', 'slow': '慢充', 'unknown': '' };
-    const speedStr = speedMap[drainChargerSpeed] || '';
-
-    sum.innerHTML = `
-      <div class="drain-sum-grid">
-        <div class="drain-sum-item"><span class="drain-sum-val">${levelStr}</span><span class="drain-sum-label">电量</span></div>
-        <div class="drain-sum-item"><span class="drain-sum-val">${statusCN}</span><span class="drain-sum-label">状态</span></div>
-        <div class="drain-sum-item"><span class="drain-sum-val">${tempC}</span><span class="drain-sum-label">温度</span></div>
-      </div>`;
-    list.innerHTML = `
-      <div class="drain-sys-display">
-        <div class="drain-sys-value">${sysW}<span class="drain-sys-unit">W</span></div>
-        <div class="drain-sys-label">电池实时输出功率</div>
-        <div class="drain-sys-details">
-          <div class="drain-sys-row"><span class="drain-sys-k">电流</span><span class="drain-sys-v">${curMA}</span></div>
-          <div class="drain-sys-row"><span class="drain-sys-k">电压</span><span class="drain-sys-v">${volMV}</span></div>
-          ${drainChargeType ? '<div class="drain-sys-row"><span class="drain-sys-k">充电类型</span><span class="drain-sys-v">' + drainChargeType + '</span></div>' : ''}
-          ${speedStr ? '<div class="drain-sys-row"><span class="drain-sys-k">充电速度</span><span class="drain-sys-v">' + speedStr + '</span></div>' : ''}
-        </div>
-        <div class="drain-sys-sub">数据来自 /sys/class/power_supply/battery</div>
-      </div>`;
-    return;
+  if (note) {
+    if (drainMode === 'app') {
+      note.textContent = '⚠️ 功耗按 CPU 时间占比分摊实际电池功率，仅为估算值（不含屏幕/GPU/网络）';
+      note.style.display = '';
+    } else {
+      note.textContent = '⚠️ 应用功耗 = 实际电池输出 × CPU 时间占比';
+      note.style.display = '';
+    }
   }
 
-  // 按应用估算模式
+  // 按应用估算模式 和 整机电池输出模式 共用列表
   if (!drainData.length) {
     list.innerHTML = '<div class="empty-hint">暂无数据，等待首次采样...</div>';
     return;
   }
+
   // 汇总
   let totalCpu = 0, totalMem = 0, totalProcs = 0;
   drainData.forEach(a => { totalCpu += a.cpu_pct; totalMem += a.mem_mb; totalProcs += a.procs; });
-  sum.innerHTML = `
-    <div class="drain-sum-grid">
-      <div class="drain-sum-item"><span class="drain-sum-val">${drainData.length}</span><span class="drain-sum-label">应用</span></div>
-      <div class="drain-sum-item"><span class="drain-sum-val">${totalCpu.toFixed(1)}%</span><span class="drain-sum-label">CPU</span></div>
-      <div class="drain-sum-item"><span class="drain-sum-val">${totalMem.toFixed(0)}M</span><span class="drain-sum-label">内存</span></div>
-      <div class="drain-sum-item"><span class="drain-sum-val">${totalProcs}</span><span class="drain-sum-label">进程</span></div>
-    </div>`;
-  // 列表
+
+  if (drainMode === 'system') {
+    // 整机模式：顶栏显示实际电池功率 + 电量状态温度
+    const sysW = (drainSysPower / 1000).toFixed(2);
+    const statusMap = { 'Charging': '充电中', 'Discharging': '放电中', 'Full': '已充满', 'Not charging': '未充电' };
+    const statusCN = statusMap[drainBatStatus] || drainBatStatus || '--';
+    const tempC = drainBatTemp > 0 ? (drainBatTemp / 10).toFixed(1) + '°C' : '--';
+    sum.innerHTML = `
+      <div class="drain-sum-grid">
+        <div class="drain-sum-item"><span class="drain-sum-val">${sysW}W</span><span class="drain-sum-label">电池输出</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${drainBatLevel >= 0 ? drainBatLevel + '%' : '--'}</span><span class="drain-sum-label">电量</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${statusCN}</span><span class="drain-sum-label">状态</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${tempC}</span><span class="drain-sum-label">温度</span></div>
+      </div>`;
+  } else {
+    // 应用估算模式
+    sum.innerHTML = `
+      <div class="drain-sum-grid">
+        <div class="drain-sum-item"><span class="drain-sum-val">${drainData.length}</span><span class="drain-sum-label">应用</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${totalCpu.toFixed(1)}%</span><span class="drain-sum-label">CPU</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${totalMem.toFixed(0)}M</span><span class="drain-sum-label">内存</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${totalProcs}</span><span class="drain-sum-label">进程</span></div>
+      </div>`;
+  }
+
+  // 列表（两种模式共用）
   let html = '';
   drainData.forEach((a, i) => {
     const color = a.power_mw > 300 ? 'var(--red)' : a.power_mw > 100 ? 'var(--amber)' : 'var(--green)';

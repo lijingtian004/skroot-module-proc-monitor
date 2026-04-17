@@ -604,13 +604,8 @@ body {
 }
 .drain-toggle.mode-app { background: var(--accent); color: #000; border-color: var(--accent); }
 .drain-toggle.mode-sys { background: var(--surface-3); color: var(--text); border-color: var(--border-active); }
-.drain-sys-display {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 48px 20px; text-align: center;
-}
 .drain-sys-value { font-size: 56px; font-weight: 800; color: var(--text); line-height: 1.1; }
 .drain-sys-unit { font-size: 24px; font-weight: 400; color: var(--text-2); margin-left: 4px; }
-.drain-sys-label { font-size: 14px; color: var(--text-2); margin-top: 12px; }
 .drain-sys-details {
   margin-top: 20px; width: 100%; max-width: 260px;
   border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
