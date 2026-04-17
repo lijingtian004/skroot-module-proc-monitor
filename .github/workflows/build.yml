@@ -88,8 +88,7 @@ jobs:
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         with:
           files: module_proc_monitor.zip
           generate_release_notes: true
+          token: ${{ secrets.PAT_TOKEN }}
