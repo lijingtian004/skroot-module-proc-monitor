@@ -1000,6 +1000,36 @@ void power_tracker_init_with_dir(const char* module_dir) {
     load_third_party_uids();
 }
 
+// ============ 后台采样线程 ============
+static pthread_t g_power_thread;
+static std::atomic<bool> g_power_running{false};
+
+static void* power_tracker_thread_func(void*) {
+    // 先等 2 秒，让系统稳定
+    sleep(2);
+    // 首次采样建立基准（不产生有效 delta）
+    power_tracker_sample();
+
+    while (g_power_running.load()) {
+        sleep(10);
+        if (!g_power_running.load()) break;
+        power_tracker_sample();
+    }
+    return nullptr;
+}
+
+void power_tracker_start() {
+    if (g_power_running.exchange(true)) return; // 已在运行
+    pthread_create(&g_power_thread, nullptr, power_tracker_thread_func, nullptr);
+    printf("[proc_monitor] power tracker background thread started (10s interval)\n");
+}
+
+void power_tracker_stop() {
+    if (!g_power_running.exchange(false)) return;
+    pthread_join(g_power_thread, nullptr);
+    printf("[proc_monitor] power tracker background thread stopped\n");
+}
+
 void power_tracker_sample() {
     double now = (double)time(nullptr);
     double dt = g_last_sample_time > 0 ? (now - g_last_sample_time) : 1.0;
