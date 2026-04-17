@@ -4,10 +4,70 @@
 let allEvents = [];
 let allAlerts = [];
 let allProcs = [];  // 当前进程列表
+let filteredProcs = [];  // 筛选后的进程
+let currentProcCat = 'all';  // 当前分类筛选
 let stats = { total: 0, alerts: 0, exec: 0, exit: 0 };
 let currentTab = 'live';
 let pollTimer = null;
 let lastEventCount = 0;
+
+// ============ 进程分类 ============
+const PROC_CATS = {
+  system:  { icon: '🔵', label: '系统核心', color: '#3b82f6' },
+  service: { icon: '🟢', label: '系统服务', color: '#22c55e' },
+  app:     { icon: '🟡', label: '用户应用', color: '#f59e0b' },
+  shell:   { icon: '🟠', label: 'Shell', color: '#f97316' },
+  risky:   { icon: '🔴', label: '可疑', color: '#ef4444' },
+};
+
+const SYSTEM_NAMES = [
+  'system_server', 'init', 'zygote', 'zygote64', 'servicemanager',
+  'binder', 'hwservicemanager', 'vndservicemanager', 'ueventd',
+  'logd', 'lmkd', 'installd', 'tombstoned', 'crash_dump',
+  'linker', 'linker64', 'app_process', 'heapprofd',
+];
+
+const RISKY_NAMES = [
+  'magisk', 'magiskd', 'su', 'frida', 'lsposed', 'lsposedd',
+  'riru', 'zygisk', 'shamiko', 'xposed', 'edxposed',
+  'kernelsu', 'apatch', 'strace', 'ltrace', 'gdb', 'gdbserver',
+];
+
+const SHELL_NAMES = ['sh', 'bash', 'logcat', 'adb', 'adbd', 'toybox', 'toybox64'];
+
+function classifyProc(p) {
+  const comm = (p.comm || '').toLowerCase();
+  const cmdline = (p.cmdline || '').toLowerCase();
+  const uid = p.uid;
+
+  // 1. 可疑进程（最高优先级）
+  for (const name of RISKY_NAMES) {
+    if (comm.includes(name) || cmdline.includes(name)) return 'risky';
+  }
+
+  // 2. 系统核心
+  if (uid === 0 || uid === 1000) {
+    for (const name of SYSTEM_NAMES) {
+      if (comm.includes(name)) return 'system';
+    }
+    // root 或 system 用户的其他进程也归为系统
+    return 'system';
+  }
+
+  // 3. Shell/调试
+  if (uid === 2000) {
+    for (const name of SHELL_NAMES) {
+      if (comm.includes(name)) return 'shell';
+    }
+    return 'shell';
+  }
+
+  // 4. 用户应用 (uid >= 10000)
+  if (uid >= 10000) return 'app';
+
+  // 5. 其他系统服务 (uid < 10000, 非 root/system)
+  return 'service';
+}
 
 // ============ API 调用 ============
 async function api(path, body = '') {
@@ -59,15 +119,41 @@ async function fetchProcs() {
   const raw = await api('/api/procs');
   if (raw) {
     try {
-      allProcs = JSON.parse(raw);
-      // 更新角标
-      const badge = document.getElementById('procBadge');
-      if (badge) badge.textContent = allProcs.length;
-      // 更新计数
-      const count = document.getElementById('procCount');
-      if (count) count.textContent = `共 ${allProcs.length} 个进程`;
+      allProcs = JSON.parse(raw).map(p => ({ ...p, cat: classifyProc(p) }));
+      updateProcCounts();
       if (currentTab === 'procs') filterProcs();
     } catch (e) {}
+  }
+}
+
+function updateProcCounts() {
+  // 统计各分类数量
+  const counts = { all: allProcs.length, system: 0, service: 0, app: 0, shell: 0, risky: 0 };
+  for (const p of allProcs) {
+    counts[p.cat]++;
+  }
+
+  // 更新角标
+  const badge = document.getElementById('procBadge');
+  if (badge) badge.textContent = counts.all;
+
+  // 更新分类按钮
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    const cat = btn.dataset.cat;
+    const count = counts[cat] || 0;
+    const label = btn.querySelector('.cat-label');
+    const countSpan = btn.querySelector('.cat-count');
+    if (countSpan) countSpan.textContent = count;
+  });
+
+  // 更新计数显示
+  const count = document.getElementById('procCount');
+  if (count) {
+    const parts = [];
+    for (const [key, val] of Object.entries(PROC_CATS)) {
+      parts.push(`${val.icon} ${counts[key]}`);
+    }
+    count.textContent = `共 ${counts.all} 个进程 · ${parts.join(' · ')}`;
   }
 }
 
@@ -256,13 +342,15 @@ function filterHistory() {
 
 function renderProcItem(p) {
   const div = document.createElement('div');
+  const cat = PROC_CATS[p.cat] || PROC_CATS.service;
   div.className = 'event-item proc-item';
+  div.style.borderLeftColor = cat.color;
   div.onclick = () => showProcDetail(p);
 
-  const cmdline = p.cmdline ? escHtml(p.cmdline.substring(0, 80)) : '';
+  const cmdline = p.cmdline ? escHtml(p.cmdline.substring(0, 60)) : '';
 
   div.innerHTML = `
-    <span class="event-icon">📌</span>
+    <span class="event-icon">${cat.icon}</span>
     <div class="event-body">
       <div class="event-main">
         <span class="comm">${escHtml(p.comm)}</span>
@@ -292,10 +380,16 @@ function renderProcsList(procs) {
 function filterProcs() {
   const keyword = document.getElementById('procSearchInput').value.toLowerCase();
 
-  let filtered = allProcs;
+  filteredProcs = allProcs;
 
+  // 分类筛选
+  if (currentProcCat !== 'all') {
+    filteredProcs = filteredProcs.filter(p => p.cat === currentProcCat);
+  }
+
+  // 关键词搜索
   if (keyword) {
-    filtered = filtered.filter(p =>
+    filteredProcs = filteredProcs.filter(p =>
       p.comm.toLowerCase().includes(keyword) ||
       String(p.pid).includes(keyword) ||
       (p.cmdline && p.cmdline.toLowerCase().includes(keyword))
@@ -304,23 +398,33 @@ function filterProcs() {
 
   // 更新计数
   const count = document.getElementById('procCount');
-  if (count) {
-    count.textContent = keyword
-      ? `匹配 ${filtered.length} / ${allProcs.length} 个进程`
-      : `共 ${allProcs.length} 个进程`;
+  if (count && keyword) {
+    count.textContent = `匹配 ${filteredProcs.length} / ${allProcs.length} 个进程`;
+  } else if (count) {
+    updateProcCounts();
   }
 
-  renderProcsList(filtered);
+  renderProcsList(filteredProcs);
+}
+
+function switchProcCat(cat) {
+  currentProcCat = cat;
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cat === cat);
+  });
+  filterProcs();
 }
 
 function showProcDetail(p) {
   const overlay = document.getElementById('modalOverlay');
   const body = document.getElementById('modalBody');
   const title = document.getElementById('modalTitle');
+  const cat = PROC_CATS[p.cat] || PROC_CATS.service;
 
-  title.textContent = `📌 ${p.comm} — 进程详情`;
+  title.textContent = `${cat.icon} ${p.comm} — 进程详情`;
 
   const rows = [
+    ['分类', `${cat.icon} ${cat.label}`],
     ['PID', p.pid],
     ['PPID', p.ppid],
     ['UID', `${p.uid} (${uidToName(p.uid)})`],
