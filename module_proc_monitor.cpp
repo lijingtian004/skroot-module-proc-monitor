@@ -52,6 +52,24 @@ static std::string build_event_json(const std::vector<ProcEvent>& events) {
     return result;
 }
 
+static std::string build_procs_json(const std::vector<ProcInfo>& procs) {
+    cJSON* arr = cJSON_CreateArray();
+    for (auto& p : procs) {
+        cJSON* obj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(obj, "pid",  (double)p.pid);
+        cJSON_AddNumberToObject(obj, "ppid", (double)p.ppid);
+        cJSON_AddNumberToObject(obj, "uid",  (double)p.uid);
+        cJSON_AddStringToObject(obj, "comm", p.comm);
+        cJSON_AddStringToObject(obj, "cmdline", p.cmdline);
+        cJSON_AddItemToArray(arr, obj);
+    }
+    char* raw = cJSON_PrintUnformatted(arr);
+    std::string result(raw);
+    cJSON_free(raw);
+    cJSON_Delete(arr);
+    return result;
+}
+
 // ============ 模块入口 ============
 
 static std::string g_module_dir;
@@ -138,6 +156,14 @@ public:
             // 手动触发一次扫描
             proc_scanner_scan_once();
             kernel_module::webui::send_text(conn, 200, "OK");
+            return true;
+        }
+
+        if (path == "/api/procs") {
+            // 获取当前所有进程列表
+            auto procs = proc_scanner_get_all_procs();
+            std::string json = build_procs_json(procs);
+            kernel_module::webui::send_text(conn, 200, json);
             return true;
         }
 
