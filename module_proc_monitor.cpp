@@ -56,7 +56,7 @@ static std::string build_event_json(const std::vector<ProcEvent>& events) {
 
 static std::string g_module_dir;
 
-extern "C" __attribute__((visibility("default"))) int skroot_module_main(const char* root_key, const char* module_private_dir) {
+int skroot_module_main(const char* root_key, const char* module_private_dir) {
     printf("[module_proc_monitor] starting...\n");
     printf("[module_proc_monitor] root_key len=%zu\n", strlen(root_key));
     printf("[module_proc_monitor] module_private_dir=%s\n", module_private_dir);
