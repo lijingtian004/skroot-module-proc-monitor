@@ -7,9 +7,8 @@ let allProcs = [];  // 当前进程列表
 let filteredProcs = [];  // 筛选后的进程
 let currentProcCat = 'all';  // 当前分类筛选
 let stats = { total: 0, alerts: 0, exec: 0, exit: 0 };
-let currentTab = 'live';
+let currentTab = 'procs';
 let pollTimer = null;
-let lastEventCount = 0;
 
 // ============ 进程分类 ============
 const PROC_CATS = {
@@ -259,24 +258,6 @@ function renderEventItem(ev, isNew) {
   return div;
 }
 
-function renderLiveList() {
-  const list = document.getElementById('liveList');
-  const autoScroll = document.getElementById('autoScroll').checked;
-  const wasAtTop = list.scrollTop < 50;
-
-  list.innerHTML = '';
-  // 统计各类型数量
-  stats.exit = allEvents.filter(e => e.type === 1).length;
-
-  for (const ev of allEvents) {
-    list.appendChild(renderEventItem(ev, false));
-  }
-
-  if (autoScroll && wasAtTop) {
-    list.scrollTop = 0;
-  }
-}
-
 function renderAlertList() {
   const list = document.getElementById('alertList');
   const summary = document.getElementById('alertSummary');
@@ -490,9 +471,9 @@ function switchTab(tab) {
   });
 
   // 切换时刷新数据
-  if (tab === 'alerts') renderAlertList();
+  if (tab === 'procs')   { fetchProcs(); filterProcs(); }
+  if (tab === 'alerts')  renderAlertList();
   if (tab === 'history') filterHistory();
-  if (tab === 'procs') { fetchProcs(); filterProcs(); }
 }
 
 // ============ 轮询 ============
@@ -506,8 +487,11 @@ async function pollAll() {
   dot.classList.add('online');
   text.textContent = '在线';
 
+  // 统计退出数
+  stats.exit = allEvents.filter(e => e.type === 1).length;
+  updateStatsUI();
+
   // 根据当前 tab 刷新对应面板
-  if (currentTab === 'live')    renderLiveList();
   if (currentTab === 'alerts')  renderAlertList();
   if (currentTab === 'history') filterHistory();
   if (currentTab === 'procs')   filterProcs();
