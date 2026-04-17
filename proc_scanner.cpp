@@ -519,124 +519,133 @@ static void load_custom_labels(const char* module_dir) {
     fclose(f);
 }
 
-// 尝试从 APK 提取 App 显示名（解析二进制 AndroidManifest.xml 的字符串池）
-// 不依赖 aapt，直接读 ZIP 里的二进制 XML
+// 尝试从 APK 提取 App 显示名
+// 解析二进制 AndroidManifest.xml: 字符串池 + XML树的属性
 static bool extract_label_from_apk(const char* apk_path, char* label_out, int label_len) {
-    // APK 是 ZIP，AndroidManifest.xml 是二进制 XML
-    // 用 unzip 提取到管道
     char cmd[1024];
     snprintf(cmd, sizeof(cmd), "unzip -p '%s' AndroidManifest.xml 2>/dev/null", apk_path);
     FILE* f = popen(cmd, "r");
     if (!f) return false;
 
-    // 读二进制 XML header
-    unsigned char buf[65536];
+    unsigned char buf[131072]; // 128KB 足够
     int n = fread(buf, 1, sizeof(buf), f);
     pclose(f);
-    if (n < 8) return false;
+    if (n < 28) return false;
 
-    // 检查 XML chunk header (type=0x0003)
+    // 检查 XML chunk header
     unsigned short type = buf[0] | (buf[1] << 8);
     if (type != 0x0003) return false;
 
-    // 找字符串池 chunk (type=0x0001)
-    int pos = 8; // 跳过 XML header
+    // 第一步：找到字符串池并解析所有字符串
+    char** strings = nullptr;
+    unsigned int str_count = 0;
+    int str_pool_end = 0;
+
+    int pos = 8;
     while (pos + 8 < n) {
         unsigned short chunk_type = buf[pos] | (buf[pos+1] << 8);
-        unsigned short chunk_hdr  = buf[pos+2] | (buf[pos+3] << 8);
-        unsigned int   chunk_size = buf[pos+4] | (buf[pos+5]<<8) | (buf[pos+6]<<16) | (buf[pos+7]<<24);
+        unsigned int chunk_size = buf[pos+4] | (buf[pos+5]<<8) | (buf[pos+6]<<16) | (buf[pos+7]<<24);
 
-        if (chunk_type == 0x0001 && chunk_size > 28) {
-            // 字符串池!
-            unsigned int str_count = buf[pos+8] | (buf[pos+9]<<8) | (buf[pos+10]<<16) | (buf[pos+11]<<24);
+        if (chunk_type == 0x0001) {
+            // 字符串池
+            str_count = buf[pos+8] | (buf[pos+9]<<8) | (buf[pos+10]<<16) | (buf[pos+11]<<24);
             unsigned int flags = buf[pos+16] | (buf[pos+17]<<8) | (buf[pos+18]<<16) | (buf[pos+19]<<24);
             unsigned int str_start = buf[pos+20] | (buf[pos+21]<<8) | (buf[pos+22]<<16) | (buf[pos+23]<<24);
             bool is_utf8 = (flags & 0x00000100) != 0;
 
             if (str_count == 0 || str_start < 28) break;
 
-            // 字符串偏移表
             unsigned int* offsets = (unsigned int*)(buf + pos + 28);
             unsigned char* str_data = buf + pos + str_start;
 
-            // 找 "label" 字符串的索引，以及它的值
-            int label_name_idx = -1;
-            int app_tag_str_idx = -1;
-            char* strings = (char*)malloc(str_count * 256);
-            if (!strings) break;
-
-            // 解析所有字符串
-            for (unsigned int i = 0; i < str_count && i < 1000; i++) {
-                char* s = strings + i * 256;
-                s[0] = 0;
+            strings = (char**)calloc(str_count, sizeof(char*));
+            for (unsigned int i = 0; i < str_count && i < 2000; i++) {
+                strings[i] = (char*)calloc(1, 512);
                 unsigned int off = offsets[i];
-                if (str_start + off >= (unsigned)n) continue;
+                if (pos + str_start + off >= (unsigned)n) continue;
 
                 unsigned char* p = str_data + off;
                 if (is_utf8) {
-                    // UTF-8: 1-2 byte length, then data
                     int slen;
-                    if (p[0] & 0x80) {
-                        slen = ((p[0] & 0x7F) << 8) | p[1];
-                        p += 2;
-                    } else {
-                        slen = p[0];
-                        p += 1;
-                    }
-                    if (slen > 0 && slen < 255) {
-                        memcpy(s, p, slen);
-                        s[slen] = 0;
+                    if (p[0] & 0x80) { slen = ((p[0] & 0x7F) << 8) | p[1]; p += 2; }
+                    else { slen = p[0]; p += 1; }
+                    if (slen > 0 && slen < 500) {
+                        memcpy(strings[i], p, slen);
+                        strings[i][slen] = 0;
                     }
                 } else {
-                    // UTF-16LE: 2 byte length, then data
-                    int slen = p[0] | (p[1] << 8);
-                    p += 2;
-                    // 简单转 UTF-8
+                    int slen = p[0] | (p[1] << 8); p += 2;
                     int j = 0;
-                    for (int k = 0; k < slen && j < 250; k++) {
+                    for (int k = 0; k < slen && j < 490; k++) {
                         unsigned short ch = p[k*2] | (p[k*2+1] << 8);
-                        if (ch < 0x80) { s[j++] = ch; }
-                        else if (ch < 0x800) { s[j++] = 0xC0|(ch>>6); s[j++] = 0x80|(ch&0x3F); }
-                        else { s[j++] = 0xE0|(ch>>12); s[j++] = 0x80|((ch>>6)&0x3F); s[j++] = 0x80|(ch&0x3F); }
+                        if (ch < 0x80) strings[i][j++] = ch;
+                        else if (ch < 0x800) { strings[i][j++]=0xC0|(ch>>6); strings[i][j++]=0x80|(ch&0x3F); }
+                        else { strings[i][j++]=0xE0|(ch>>12); strings[i][j++]=0x80|((ch>>6)&0x3F); strings[i][j++]=0x80|(ch&0x3F); }
                     }
-                    s[j] = 0;
-                }
-
-                if (strcmp(s, "label") == 0) label_name_idx = i;
-            }
-
-            // 如果找到 label 名，继续在 XML tree 里找它的值
-            // 简化：直接在字符串池里找第一个非关键字、非空、看起来像应用名的字符串
-            if (label_name_idx >= 0) {
-                // 遍历字符串，找可能是 label 值的
-                // 通常 label 值在 "label" 字符串之后
-                for (unsigned int i = label_name_idx + 1; i < str_count && i < 1000; i++) {
-                    char* s = strings + i * 256;
-                    if (s[0] && strlen(s) > 1 && strlen(s) < 100
-                        && strcmp(s, "theme") != 0
-                        && strcmp(s, "name") != 0
-                        && strcmp(s, "label") != 0
-                        && strstr(s, "http://") == nullptr
-                        && strstr(s, "android") == nullptr
-                        && strstr(s, "com.") == nullptr) {
-                        // 可能是 label 值
-                        strncpy(label_out, s, label_len - 1);
-                        label_out[label_len - 1] = 0;
-                        free(strings);
-                        return true;
-                    }
+                    strings[i][j] = 0;
                 }
             }
-
-            free(strings);
+            str_pool_end = pos + chunk_size;
             break;
+        }
+        if (chunk_size == 0) break;
+        pos += chunk_size;
+    }
+
+    if (!strings || str_count == 0) return false;
+
+    // 找关键字符串的索引
+    int idx_application = -1, idx_label = -1, idx_android_ns = -1;
+    for (unsigned int i = 0; i < str_count; i++) {
+        if (strcmp(strings[i], "application") == 0) idx_application = i;
+        if (strcmp(strings[i], "label") == 0) idx_label = i;
+        if (strcmp(strings[i], "http://schemas.android.com/apk/res/android") == 0) idx_android_ns = i;
+    }
+
+    // 第二步：扫描 XML 树，找 <application> 元素的 label 属性值
+    bool found = false;
+    pos = str_pool_end;
+    while (pos + 8 < n) {
+        unsigned short chunk_type = buf[pos] | (buf[pos+1] << 8);
+        unsigned int chunk_size = buf[pos+4] | (buf[pos+5]<<8) | (buf[pos+6]<<16) | (buf[pos+7]<<24);
+
+        // StartElement (0x0102)
+        if (chunk_type == 0x0102) {
+            unsigned int elem_name = buf[pos+16] | (buf[pos+17]<<8) | (buf[pos+18]<<16) | (buf[pos+19]<<24);
+            unsigned short attr_size = buf[pos+20] | (buf[pos+21]<<8);
+            unsigned short attr_count = buf[pos+22] | (buf[pos+23]<<8);
+
+            if ((int)elem_name == idx_application) {
+                // 找到 <application>！遍历属性
+                int attr_pos = pos + 36; // 属性起始
+                for (int a = 0; a < attr_count; a++) {
+                    if (attr_pos + 20 > n) break;
+                    unsigned int a_ns = *(unsigned int*)(buf + attr_pos);
+                    unsigned int a_name = *(unsigned int*)(buf + attr_pos + 4);
+                    unsigned int a_val = *(unsigned int*)(buf + attr_pos + 8);
+
+                    // 检查 namespace=android, name=label
+                    bool ns_ok = (int)a_ns == idx_android_ns;
+                    if (a_ns == 0xFFFFFFFF) ns_ok = true; // 有些manifest不写namespace
+                    if (ns_ok && (int)a_name == idx_label && a_val < str_count) {
+                        strncpy(label_out, strings[a_val], label_len - 1);
+                        label_out[label_len - 1] = 0;
+                        found = true;
+                        break;
+                    }
+                    attr_pos += attr_size;
+                }
+                if (found) break;
+            }
         }
 
         if (chunk_size == 0) break;
         pos += chunk_size;
     }
 
-    return false;
+    for (unsigned int i = 0; i < str_count; i++) free(strings[i]);
+    free(strings);
+    return found;
 }
 
 // 用 pm list packages -f 获取所有包名，再逐个提取 label
