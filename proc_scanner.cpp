@@ -550,7 +550,6 @@ static uid_t find_foreground_uid() {
         }
         fclose(f);
         if (uid == (uid_t)-1 || uid < 10000) continue;
-        if (g_third_party_uids.find(uid) == g_third_party_uids.end()) continue;
 
         int oom = read_oom_score_adj(pid);
         if (oom < fg_oom) {
