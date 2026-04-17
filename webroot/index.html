@@ -53,6 +53,9 @@
       <button class="tab" data-tab="history" onclick="switchTab('history')">
         <span class="tab-icon">📋</span> 历史
       </button>
+      <button class="tab" data-tab="charging" onclick="switchTab('charging')">
+        <span class="tab-icon">⚡</span> 充电
+      </button>
     </div>
 
     <!-- 进程列表面板 (默认) -->
@@ -114,6 +117,17 @@
       </div>
       <div class="event-list" id="historyList">
         <div class="loading">加载中...</div>
+      </div>
+    </div>
+
+    <!-- 充电信息面板 -->
+    <div class="panel" id="panel-charging">
+      <div class="charging-overview" id="chargingOverview">
+        <div class="loading">加载中...</div>
+      </div>
+      <div class="charging-details" id="chargingDetails"></div>
+      <div class="charging-supplies" id="chargingSupplies">
+        <div class="section-title">🔌 检测到的电源设备</div>
       </div>
     </div>
   </div>

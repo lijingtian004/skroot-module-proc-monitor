@@ -9,6 +9,7 @@ let currentProcCat = 'all';  // 当前分类筛选
 let stats = { total: 0, alerts: 0, exec: 0, exit: 0 };
 let currentTab = 'procs';
 let pollTimer = null;
+let chargingInfo = null;
 
 // ============ 进程分类 ============
 const PROC_CATS = {
@@ -121,6 +122,16 @@ async function fetchProcs() {
       allProcs = JSON.parse(raw).map(p => ({ ...p, cat: classifyProc(p) }));
       updateProcCounts();
       if (currentTab === 'procs') filterProcs();
+    } catch (e) {}
+  }
+}
+
+async function fetchCharging() {
+  const raw = await api('/api/charging');
+  if (raw) {
+    try {
+      chargingInfo = JSON.parse(raw);
+      if (currentTab === 'charging') renderChargingInfo();
     } catch (e) {}
   }
 }
@@ -474,12 +485,13 @@ function switchTab(tab) {
   if (tab === 'procs')   { fetchProcs(); filterProcs(); }
   if (tab === 'alerts')  renderAlertList();
   if (tab === 'history') filterHistory();
+  if (tab === 'charging') fetchCharging();
 }
 
 // ============ 轮询 ============
 
 async function pollAll() {
-  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs()]);
+  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs(), fetchCharging()]);
 
   // 更新状态指示
   const dot = document.getElementById('statusDot');
@@ -495,6 +507,7 @@ async function pollAll() {
   if (currentTab === 'alerts')  renderAlertList();
   if (currentTab === 'history') filterHistory();
   if (currentTab === 'procs')   filterProcs();
+  if (currentTab === 'charging') renderChargingInfo();
 }
 
 function startPolling() {
@@ -508,6 +521,138 @@ function escHtml(s) {
   const div = document.createElement('div');
   div.textContent = s;
   return div.innerHTML;
+}
+
+// ============ 充电信息渲染 ============
+
+function speedLabel(speed) {
+  const map = {
+    'slow':    '🐢 慢充',
+    'normal':  '🔋 标准充电',
+    'fast':    '⚡ 快充',
+    'super':   '🚀 极速快充',
+    'unknown': '❓ 未知',
+  };
+  return map[speed] || speed;
+}
+
+function statusColor(status) {
+  const s = (status || '').toLowerCase();
+  if (s.includes('charging')) return '#22c55e';
+  if (s.includes('discharging')) return '#f59e0b';
+  if (s.includes('full')) return '#3b82f6';
+  if (s.includes('not')) return '#94a3b8';
+  return '#94a3b8';
+}
+
+function healthColor(pct) {
+  if (pct >= 80) return '#22c55e';
+  if (pct >= 50) return '#f59e0b';
+  return '#ef4444';
+}
+
+function renderChargingInfo() {
+  if (!chargingInfo) return;
+  const ch = chargingInfo;
+
+  // 顶部概览
+  const overview = document.getElementById('chargingOverview');
+  const sc = statusColor(ch.battery_status);
+  const level = ch.battery_level >= 0 ? ch.battery_level : '?';
+
+  // 进度条
+  const barWidth = ch.battery_level >= 0 ? ch.battery_level : 0;
+  const tempStr = ch.battery_temp > 0 ? (ch.battery_temp / 10).toFixed(1) + '°C' : '?';
+  const voltageStr = ch.battery_voltage_mv > 0 ? ch.battery_voltage_mv + 'mV' : '?';
+  const currentStr = ch.battery_current_ma !== 0 ? ch.battery_current_ma + 'mA' : '?';
+
+  // 健康度
+  let healthHtml = '';
+  if (ch.battery_health_pct > 0) {
+    const hpct = ch.battery_health_pct.toFixed(1);
+    const hc = healthColor(hpct);
+    healthHtml = `
+      <div class="charge-health-bar">
+        <div class="charge-health-label">电池健康度</div>
+        <div class="charge-health-value" style="color:${hc}">${hpct}%</div>
+        <div class="charge-health-track">
+          <div class="charge-health-fill" style="width:${hpct}%;background:${hc}"></div>
+        </div>
+      </div>`;
+  }
+
+  overview.innerHTML = `
+    <div class="charge-big-status" style="color:${sc}">
+      ${ch.battery_status || '未知'}
+    </div>
+    <div class="charge-level">
+      <div class="charge-level-num">${level}%</div>
+      <div class="charge-level-bar">
+        <div class="charge-level-fill" style="width:${barWidth}%;background:${sc}"></div>
+      </div>
+    </div>
+    <div class="charge-speed-label">${speedLabel(ch.charger_speed)}</div>
+    ${healthHtml}
+  `;
+
+  // 详细参数
+  const details = document.getElementById('chargingDetails');
+  const rows = [];
+  if (voltageStr !== '?') rows.push(['电压', voltageStr]);
+  if (currentStr !== '?') rows.push(['电流', currentStr]);
+  if (tempStr !== '?') rows.push(['温度', tempStr]);
+  if (ch.battery_health) rows.push(['健康', ch.battery_health]);
+  if (ch.battery_technology) rows.push(['电池类型', ch.battery_technology]);
+  if (ch.charge_type) rows.push(['充电类型', ch.charge_type]);
+  if (ch.input_current_ma >= 0) rows.push(['输入电流上限', ch.input_current_ma + 'mA']);
+  if (ch.pd_supported) rows.push(['PD协议', '支持']);
+  if (ch.charge_full_uah > 0) rows.push(['满电容量', (ch.charge_full_uah / 1000).toFixed(0) + 'mAh']);
+  if (ch.charge_full_design_uah > 0) rows.push(['设计容量', (ch.charge_full_design_uah / 1000).toFixed(0) + 'mAh']);
+
+  if (rows.length > 0) {
+    details.innerHTML = `
+      <div class="section-title">📊 详细参数</div>
+      <div class="detail-grid">
+        ${rows.map(([label, value]) =>
+          `<div class="detail-row">
+            <span class="detail-label">${escHtml(label)}</span>
+            <span class="detail-value">${escHtml(String(value))}</span>
+          </div>`
+        ).join('')}
+      </div>`;
+  } else {
+    details.innerHTML = '';
+  }
+
+  // 电源设备列表
+  const supplies = document.getElementById('chargingSupplies');
+  let suppliesHtml = '<div class="section-title">🔌 检测到的电源设备</div>';
+  if (ch.supplies && ch.supplies.length > 0) {
+    for (const s of ch.supplies) {
+      const statusC = statusColor(s.status);
+      suppliesHtml += `
+        <div class="supply-card">
+          <div class="supply-header">
+            <span class="supply-name">${escHtml(s.name)}</span>
+            <span class="supply-type">${escHtml(s.type)}</span>
+            <span class="supply-status" style="color:${statusC}">${escHtml(s.status || 'N/A')}</span>
+          </div>
+          <div class="supply-details">
+            ${s.capacity >= 0 ? `<span>电量 ${s.capacity}%</span>` : ''}
+            ${s.voltage_uv > 0 ? `<span>电压 ${(s.voltage_uv/1000000).toFixed(2)}V</span>` : ''}
+            ${s.current_ua !== 0 ? `<span>电流 ${(s.current_ua/1000).toFixed(0)}mA</span>` : ''}
+            ${s.temp > 0 ? `<span>温度 ${(s.temp/10).toFixed(1)}°C</span>` : ''}
+            ${s.health[0] ? `<span>健康 ${escHtml(s.health)}</span>` : ''}
+            ${s.charge_type[0] && s.charge_type !== 'N/A' ? `<span>充电 ${escHtml(s.charge_type)}</span>` : ''}
+            ${s.technology[0] ? `<span>技术 ${escHtml(s.technology)}</span>` : ''}
+            ${s.pd_allowed > 0 ? `<span>PD ✓</span>` : ''}
+          </div>
+        </div>`;
+    }
+  } else {
+    suppliesHtml += '<div class="empty-state"><p>未检测到电源设备</p></div>';
+  }
+  supplies.innerHTML = suppliesHtml;
 }
 
 // ============ 启动 ============

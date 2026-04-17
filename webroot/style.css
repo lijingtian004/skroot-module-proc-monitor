@@ -367,3 +367,172 @@ body {
   min-width: 20px;
   text-align: center;
 }
+
+/* ============ 充电面板 ============ */
+
+#panel-charging {
+  padding: 12px;
+}
+
+.charging-overview {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.charge-big-status {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.charge-level {
+  margin: 12px 0;
+}
+
+.charge-level-num {
+  font-size: 42px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+  margin-bottom: 10px;
+}
+
+.charge-level-bar {
+  height: 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.charge-level-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+.charge-speed-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+
+.charge-health-bar {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.charge-health-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.charge-health-value {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.charge-health-track {
+  height: 6px;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.charge-health-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin: 16px 0 10px;
+}
+
+.detail-grid {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.charging-details .detail-grid .detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.charging-details .detail-grid .detail-row:last-child {
+  border-bottom: none;
+}
+
+.charging-details .detail-label {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.charging-details .detail-value {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.supply-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.supply-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.supply-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.supply-type {
+  font-size: 11px;
+  background: var(--surface2);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--text-dim);
+}
+
+.supply-status {
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.supply-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.supply-details span {
+  font-size: 12px;
+  background: var(--surface2);
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: var(--text-dim);
+}
