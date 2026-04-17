@@ -519,6 +519,126 @@ static void load_custom_labels(const char* module_dir) {
     fclose(f);
 }
 
+// 尝试用 aapt 提取所有 App label → labels.conf
+// 备选: dumpsys 包列表
+static void auto_extract_labels(const char* module_dir) {
+    char labels_path[512];
+    snprintf(labels_path, sizeof(labels_path), "%s/labels.conf", module_dir);
+
+    // 先加载已有的（不覆盖用户自定义）
+    std::unordered_map<std::string, std::string> existing;
+    {
+        FILE* f = fopen(labels_path, "r");
+        if (f) {
+            char line[256];
+            while (fgets(line, sizeof(line), f)) {
+                if (line[0] == '#' || line[0] == '\n') continue;
+                char* eq = strchr(line, '=');
+                if (!eq) continue;
+                *eq = 0;
+                char* val = eq + 1;
+                char* nl = strchr(val, '\n');
+                if (nl) *nl = 0;
+                existing[line] = val;
+            }
+            fclose(f);
+        }
+    }
+
+    // 找 aapt
+    const char* aapt_paths[] = {
+        "/system/bin/aapt",
+        "/system/bin/aapt2",
+        "/data/local/tmp/aapt",
+        "/data/local/tmp/aapt2",
+        nullptr
+    };
+    const char* aapt = nullptr;
+    for (int i = 0; aapt_paths[i]; i++) {
+        if (access(aapt_paths[i], X_OK) == 0) {
+            aapt = aapt_paths[i];
+            break;
+        }
+    }
+
+    // pm list packages -f → 拿包名→APK路径
+    FILE* pm = popen("pm list packages -f 2>/dev/null", "r");
+    if (!pm) return;
+
+    char line[1024];
+    int count = 0;
+    while (fgets(line, sizeof(line), pm)) {
+        // 格式: package:/data/app/~~xxx/base.apk=com.xxx.yyy
+        char* eq = strrchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char* apk_path = line + 8; // skip "package:"
+        char pkg[128];
+        strncpy(pkg, eq + 1, sizeof(pkg) - 1);
+        char* nl = strchr(pkg, '\n');
+        if (nl) *nl = 0;
+
+        // 跳过已有映射
+        if (existing.find(pkg) != existing.end()) continue;
+
+        char label[256] = {};
+
+        if (aapt) {
+            // aapt dump badging <apk> | grep "application-label"
+            char cmd[1024];
+            // 先检查 zh-CN locale
+            snprintf(cmd, sizeof(cmd),
+                "%s dump badging '%s' 2>/dev/null | grep \"application-label-zh:\" | head -1 | sed \"s/.*label='//;s/'.*//\"",
+                aapt, apk_path);
+            FILE* f = popen(cmd, "r");
+            if (f) {
+                if (fgets(label, sizeof(label), f)) {
+                    nl = strchr(label, '\n');
+                    if (nl) *nl = 0;
+                }
+                pclose(f);
+            }
+            // 没有 zh 就取默认
+            if (!label[0]) {
+                snprintf(cmd, sizeof(cmd),
+                    "%s dump badging '%s' 2>/dev/null | grep \"application-label:\" | grep -v \"application-label-zh\" | head -1 | sed \"s/.*label='//;s/'.*//\"",
+                    aapt, apk_path);
+                f = popen(cmd, "r");
+                if (f) {
+                    if (fgets(label, sizeof(label), f)) {
+                        nl = strchr(label, '\n');
+                        if (nl) *nl = 0;
+                    }
+                    pclose(f);
+                }
+            }
+        }
+
+        if (label[0]) {
+            existing[pkg] = label;
+            count++;
+        }
+    }
+    pclose(pm);
+
+    if (count > 0) {
+        // 写回 labels.conf
+        FILE* f = fopen(labels_path, "w");
+        if (f) {
+            fprintf(f, "# 自动提取的 App 名称映射 (%d 个新 App)\n", count);
+            fprintf(f, "# 格式: 包名=显示名称\n\n");
+            for (auto& [pkg, label] : existing) {
+                fprintf(f, "%s=%s\n", pkg.c_str(), label.c_str());
+            }
+            fclose(f);
+            printf("[proc_monitor] 提取了 %d 个 App 名称 → %s\n", count, labels_path);
+        }
+    }
+
+    // 重新加载
+    load_custom_labels(module_dir);
+}
+
 // 从 /data/system/packages.list 加载 UID→包名映射
 static void load_uid_pkg_map() {
     g_uid_pkg_map.clear();
@@ -701,6 +821,7 @@ void power_tracker_init_with_dir(const char* module_dir) {
     power_tracker_init();
     load_custom_labels(module_dir);
     load_uid_pkg_map();
+    auto_extract_labels(module_dir);
 }
 
 void power_tracker_sample() {
