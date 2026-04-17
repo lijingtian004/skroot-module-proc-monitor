@@ -496,6 +496,8 @@ static double g_prev_total_cpu_sec = 0;  // 上次总 CPU 时间（从 /proc/sta
 
 // 自定义标签映射（从 labels.conf 加载）
 static std::unordered_map<std::string, std::string> g_custom_labels;
+// UID → 包名 映射（从 packages.list 加载）
+static std::unordered_map<uid_t, std::string> g_uid_pkg_map;
 
 static void load_custom_labels(const char* module_dir) {
     g_custom_labels.clear();
@@ -505,18 +507,40 @@ static void load_custom_labels(const char* module_dir) {
     if (!f) return;
     char line[256];
     while (fgets(line, sizeof(line), f)) {
-        // 格式: com.xxx.yyy=中文名
         if (line[0] == '#' || line[0] == '\n') continue;
         char* eq = strchr(line, '=');
         if (!eq) continue;
         *eq = 0;
         char* val = eq + 1;
-        // trim newline
         char* nl = strchr(val, '\n');
         if (nl) *nl = 0;
         g_custom_labels[line] = val;
     }
     fclose(f);
+}
+
+// 从 /data/system/packages.list 加载 UID→包名映射
+static void load_uid_pkg_map() {
+    g_uid_pkg_map.clear();
+    const char* paths[] = {
+        "/data/system/packages.list",
+        "/data/misc/packages.list",
+        nullptr
+    };
+    for (int i = 0; paths[i]; i++) {
+        FILE* f = fopen(paths[i], "r");
+        if (!f) continue;
+        char line[512];
+        while (fgets(line, sizeof(line), f)) {
+            char pkg[128];
+            unsigned int uid;
+            if (sscanf(line, "%127s %u", pkg, &uid) == 2) {
+                g_uid_pkg_map[(uid_t)uid] = pkg;
+            }
+        }
+        fclose(f);
+        break;
+    }
 }
 
 // 包名 → 中文名 映射
@@ -676,6 +700,7 @@ void power_tracker_init() {
 void power_tracker_init_with_dir(const char* module_dir) {
     power_tracker_init();
     load_custom_labels(module_dir);
+    load_uid_pkg_map();
 }
 
 void power_tracker_sample() {
