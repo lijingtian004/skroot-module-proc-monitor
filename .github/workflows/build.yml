@@ -1,0 +1,87 @@
+name: Build SKRoot Module
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download NDK r26d
+        run: |
+          cd /tmp
+          curl -sL "https://dl.google.com/android/repository/android-ndk-r26d-linux.zip" -o ndk.zip
+          unzip -q ndk.zip -d /tmp/
+          echo "NDK=/tmp/android-ndk-r26d" >> $GITHUB_ENV
+
+      - name: Fix NDK symlinks
+        run: |
+          cd $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
+          # Fix broken text-file symlinks
+          for f in clang clang++; do
+            if file "$f" | grep -q "ASCII text"; then
+              target=$(cat "$f")
+              rm -f "$f" && ln -s "$target" "$f"
+            fi
+          done
+          for f in ld ld.lld ld64.lld lld-link; do
+            if [ -f "$f" ] && file "$f" | grep -q "ASCII text"; then
+              rm -f "$f" && ln -s lld "$f"
+            fi
+          done
+          # Verify
+          file clang clang++ lld | head -5
+
+      - name: Compile
+        run: |
+          CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          CXX="$CLANG/aarch64-linux-android31-clang++"
+          OUT="$GITHUB_WORKSPACE/libs/arm64-v8a"
+          mkdir -p $OUT
+
+          CXXFLAGS="--target=aarch64-linux-android31 -std=c++20 -fPIC -fvisibility=hidden \
+            -fno-stack-protector -fno-rtti \
+            --sysroot=$SYSROOT \
+            -I$GITHUB_WORKSPACE -I$GITHUB_WORKSPACE/_kit_stub/include \
+            -DANDROID"
+
+          $CXX $CXXFLAGS -c proc_scanner.cpp -o $OUT/proc_scanner.o
+          $CXX $CXXFLAGS -c module_proc_monitor.cpp -o $OUT/module_proc_monitor.o
+          $CXX $CXXFLAGS -c cJSON.cpp -o $OUT/cJSON.o
+
+          $CXX --target=aarch64-linux-android31 -shared \
+            --sysroot=$SYSROOT \
+            -Wl,-soname,libmodule_proc_monitor.so \
+            $OUT/module_proc_monitor.o $OUT/proc_scanner.o $OUT/cJSON.o \
+            _kit_stub/lib/libkernel_module_kit_static.a \
+            -static-libstdc++ -lc -lm \
+            -o $OUT/libmodule_proc_monitor.so
+
+          $CLANG/llvm-objcopy --strip-debug $OUT/libmodule_proc_monitor.so
+
+          echo "=== Verify ==="
+          $CLANG/llvm-readelf -d $OUT/libmodule_proc_monitor.so | grep -E "SONAME|NEEDED"
+          $CLANG/llvm-readelf --dyn-syms $OUT/libmodule_proc_monitor.so --wide | grep skroot
+
+      - name: Package ZIP
+        run: |
+          mkdir -p /tmp/module_pkg
+          cp libs/arm64-v8a/libmodule_proc_monitor.so /tmp/module_pkg/
+          cp -r webroot /tmp/module_pkg/
+          cd /tmp/module_pkg
+          zip -r $GITHUB_WORKSPACE/module_proc_monitor.zip .
+          echo "=== ZIP contents ==="
+          unzip -l $GITHUB_WORKSPACE/module_proc_monitor.zip
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: module_proc_monitor.zip
+          generate_release_notes: true
