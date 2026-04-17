@@ -1095,12 +1095,11 @@ void power_tracker_sample() {
         AppPowerInfo info = {};
         info.uid = uid;
 
-        // 绝对 CPU 占用率 = delta / total_cpu_delta * nprocs * 100
+        // 绝对 CPU 占用率（total_cpu_delta 已包含所有核心，无需 *nprocs）
         if (total_cpu_delta > 0 && g_last_sample_time > 0)
-            info.cpu_usage_pct = cpu_deltas[uid] / total_cpu_delta * nprocs * 100.0;
+            info.cpu_usage_pct = cpu_deltas[uid] / total_cpu_delta * 100.0;
         else
             info.cpu_usage_pct = 0;
-        if (info.cpu_usage_pct > 100 * nprocs) info.cpu_usage_pct = 100 * nprocs;
 
         info.cpu_time_sec = cur.cpu_time_sec;
         info.mem_rss_kb = cur.mem_rss_kb;
@@ -1139,8 +1138,10 @@ void power_tracker_sample() {
         // 读取实际电池功率（mW），按 CPU 占比分配
         g_battery_power_mw = read_battery_power_mw();
         if (g_battery_power_mw > 0 && total_cpu_delta > 0 && g_last_sample_time > 0) {
-            // 实际总功耗 × 该应用 CPU 占比
-            info.power_score = g_battery_power_mw * (cpu_deltas[uid] / total_cpu_delta * nprocs);
+            // 实际总功耗 × 该应用 CPU 占比（total_cpu_delta 已含所有核心）
+            double frac = cpu_deltas[uid] / total_cpu_delta;
+            if (frac > 1.0) frac = 1.0;
+            info.power_score = g_battery_power_mw * frac;
         } else {
             // 兜底：无电池信息时用粗略估算
             double cpu_mw = info.cpu_usage_pct / 100.0 * 500.0 * nprocs;
