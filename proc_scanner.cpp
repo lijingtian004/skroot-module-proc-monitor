@@ -751,49 +751,89 @@ static void load_uid_pkg_map() {
     }
 }
 
-// 用 pm list packages -3 获取第三方应用 UID
+// 用 pm list packages -f 获取用户应用 UID（APK 在 /data/ 下的才是用户应用）
 static void load_third_party_uids() {
     g_third_party_uids.clear();
-    // 先拿第三方包名
-    std::unordered_set<std::string> tpkgs;
-    FILE* f = popen("pm list packages -3 2>/dev/null", "r");
-    if (f) {
-        char line[256];
-        while (fgets(line, sizeof(line), f)) {
-            char* pkg = line;
-            if (strncmp(pkg, "package:", 8) == 0) pkg += 8;
-            char* nl = strchr(pkg, '\n');
-            if (nl) *nl = 0;
-            tpkgs.insert(pkg);
+    // pm list packages -f 格式: package:/data/app/~~xxx/base.apk=com.xxx.yyy
+    FILE* f = popen("pm list packages -f 2>/dev/null", "r");
+    if (!f) return;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        // 检查 APK 路径是否在 /data/ 下（参考 Tweak-Android 的 isSystemApp 逻辑）
+        if (strncmp(line, "package:/data/", 14) != 0) continue;
+        // 这是用户应用，提取包名
+        char* eq = strrchr(line, '=');
+        if (!eq) continue;
+        char pkg[128];
+        strncpy(pkg, eq + 1, sizeof(pkg) - 1);
+        char* nl = strchr(pkg, '\n');
+        if (nl) *nl = 0;
+        // 查找对应的 UID
+        for (auto& [uid, pname] : g_uid_pkg_map) {
+            if (pname == pkg) {
+                g_third_party_uids.insert(uid);
+                break;
+            }
         }
-        pclose(f);
     }
-    // 匹配 UID
-    for (auto& [uid, pkg] : g_uid_pkg_map) {
-        if (tpkgs.find(pkg) != tpkgs.end()) {
-            g_third_party_uids.insert(uid);
-        }
-    }
+    pclose(f);
 }
 
 // 从 sysfs 读取实际电池功率（mW）
+// 参考 Tweak-Android: 从 uevent 文件解析 POWER_SUPPLY_CURRENT_NOW 和 VOLTAGE_NOW
 static double read_battery_power_mw() {
+    const char* paths[] = {
+        "/sys/class/power_supply/bms/uevent",
+        "/sys/class/power_supply/battery/uevent",
+        nullptr
+    };
+
     double cur_val = 0, vol_val = 0;
-    // 读电流（可能是 μA 或 mA，取绝对值）
-    FILE* f = fopen("/sys/class/power_supply/battery/current_now", "r");
-    if (f) { fscanf(f, "%lf", &cur_val); fclose(f); }
-    cur_val = cur_val < 0 ? -cur_val : cur_val;  // 放电时为负，取绝对值
-    // 读电压（可能是 μV 或 mV）
-    f = fopen("/sys/class/power_supply/battery/voltage_now", "r");
-    if (f) { fscanf(f, "%lf", &vol_val); fclose(f); }
 
-    if (cur_val <= 0 || vol_val <= 0) return 0;
+    for (int i = 0; paths[i]; i++) {
+        FILE* f = fopen(paths[i], "r");
+        if (!f) continue;
+        char line[512];
+        while (fgets(line, sizeof(line), f)) {
+            if (strncmp(line, "POWER_SUPPLY_CURRENT_NOW=", 25) == 0) {
+                cur_val = atof(line + 25);
+            } else if (strncmp(line, "POWER_SUPPLY_VOLTAGE_NOW=", 25) == 0) {
+                vol_val = atof(line + 25);
+            } else if (strncmp(line, "POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=", 38) == 0) {
+                // 充电时用这个
+                if (cur_val == 0) cur_val = atof(line + 38);
+            }
+        }
+        fclose(f);
+        if (cur_val != 0 && vol_val != 0) break;
+    }
 
-    // 自动判断单位：
-    // current_now: >100000 → μA，否则 → mA
-    // voltage_now: >100000 → μV，否则 → mV
-    double cur_ma = (cur_val > 100000) ? (cur_val / 1000.0) : cur_val;
-    double vol_mv = (vol_val > 100000) ? (vol_val / 1000.0) : vol_val;
+    // 兜底：读单个文件
+    if (cur_val == 0) {
+        FILE* f = fopen("/sys/class/power_supply/battery/current_now", "r");
+        if (f) { fscanf(f, "%lf", &cur_val); fclose(f); }
+    }
+    if (vol_val == 0) {
+        FILE* f = fopen("/sys/class/power_supply/battery/voltage_now", "r");
+        if (f) { fscanf(f, "%lf", &vol_val); fclose(f); }
+    }
+
+    if (cur_val == 0 || vol_val == 0) return 0;
+
+    cur_val = cur_val < 0 ? -cur_val : cur_val;  // 放电时为负
+
+    // 单位判断（参考 Tweak-Android 的 strToVoltage 逻辑）
+    // current: >1e6 → μA，>1000 → mA，否则已是 mA
+    double cur_ma;
+    if (cur_val > 1e6) cur_ma = cur_val / 1000.0;
+    else if (cur_val > 1000) cur_ma = cur_val / 1000.0;
+    else cur_ma = cur_val;
+
+    // voltage: >1e6 → μV，>1000 → mV，否则已是 mV
+    double vol_mv;
+    if (vol_val > 1e6) vol_mv = vol_val / 1000.0;
+    else if (vol_val > 1000) vol_mv = vol_val / 1000.0;
+    else vol_mv = vol_val;
 
     // P(mW) = I(mA) × V(mV) / 1000
     return cur_ma * vol_mv / 1000.0;
