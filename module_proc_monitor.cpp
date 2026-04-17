@@ -24,6 +24,7 @@ extern "C" {
     cJSON* cJSON_AddNumberToObject(cJSON* object, const char* name, double number);
     cJSON* cJSON_AddItemToArray(cJSON* array, cJSON* item);
     cJSON* cJSON_AddItemToObject(cJSON* object, const char* name, cJSON* item);
+    cJSON* cJSON_CreateNumber(double num);
     char*  cJSON_PrintUnformatted(const cJSON* item);
     void   cJSON_free(void* ptr);
 }
