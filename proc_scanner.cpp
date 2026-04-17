@@ -522,21 +522,21 @@ static void load_custom_labels(const char* module_dir) {
 // 尝试从 APK 提取 App 显示名
 // 解析二进制 AndroidManifest.xml: 字符串池 + XML树的属性
 static bool extract_label_from_apk(const char* apk_path, char* label_out, int label_len) {
+    label_out[0] = 0;
     char cmd[1024];
     snprintf(cmd, sizeof(cmd), "unzip -p '%s' AndroidManifest.xml 2>/dev/null", apk_path);
     FILE* f = popen(cmd, "r");
     if (!f) return false;
 
-    unsigned char buf[131072]; // 128KB 足够
+    unsigned char buf[131072];
     int n = fread(buf, 1, sizeof(buf), f);
     pclose(f);
     if (n < 28) return false;
 
-    // 检查 XML chunk header
     unsigned short type = buf[0] | (buf[1] << 8);
     if (type != 0x0003) return false;
 
-    // 第一步：找到字符串池并解析所有字符串
+    // 第一步：解析字符串池
     char** strings = nullptr;
     unsigned int str_count = 0;
     int str_pool_end = 0;
@@ -544,39 +544,48 @@ static bool extract_label_from_apk(const char* apk_path, char* label_out, int la
     int pos = 8;
     while (pos + 8 < n) {
         unsigned short chunk_type = buf[pos] | (buf[pos+1] << 8);
+        unsigned short hdr_size = buf[pos+2] | (buf[pos+3] << 8);
         unsigned int chunk_size = buf[pos+4] | (buf[pos+5]<<8) | (buf[pos+6]<<16) | (buf[pos+7]<<24);
+        if (chunk_size < 8 || pos + (int)chunk_size > n) break;
 
-        if (chunk_type == 0x0001) {
-            // 字符串池
+        if (chunk_type == 0x0001 && chunk_size >= 28) {
             str_count = buf[pos+8] | (buf[pos+9]<<8) | (buf[pos+10]<<16) | (buf[pos+11]<<24);
             unsigned int flags = buf[pos+16] | (buf[pos+17]<<8) | (buf[pos+18]<<16) | (buf[pos+19]<<24);
             unsigned int str_start = buf[pos+20] | (buf[pos+21]<<8) | (buf[pos+22]<<16) | (buf[pos+23]<<24);
             bool is_utf8 = (flags & 0x00000100) != 0;
 
-            if (str_count == 0 || str_start < 28) break;
+            if (str_count == 0 || str_count > 10000 || str_start < 28 || str_start >= chunk_size) break;
 
             unsigned int* offsets = (unsigned int*)(buf + pos + 28);
             unsigned char* str_data = buf + pos + str_start;
 
             strings = (char**)calloc(str_count, sizeof(char*));
-            for (unsigned int i = 0; i < str_count && i < 2000; i++) {
+            for (unsigned int i = 0; i < str_count; i++) {
                 strings[i] = (char*)calloc(1, 512);
+                if (pos + 28 + i * 4 + 4 > n) continue;
                 unsigned int off = offsets[i];
+                if (str_start + off >= chunk_size) continue;
                 if (pos + str_start + off >= (unsigned)n) continue;
 
                 unsigned char* p = str_data + off;
                 if (is_utf8) {
                     int slen;
-                    if (p[0] & 0x80) { slen = ((p[0] & 0x7F) << 8) | p[1]; p += 2; }
-                    else { slen = p[0]; p += 1; }
-                    if (slen > 0 && slen < 500) {
+                    if (p[0] & 0x80) {
+                        if (pos + str_start + off + 2 > n) continue;
+                        slen = ((p[0] & 0x7F) << 8) | p[1]; p += 2;
+                    } else {
+                        slen = p[0]; p += 1;
+                    }
+                    if (slen > 0 && slen < 500 && pos + str_start + off + slen <= n) {
                         memcpy(strings[i], p, slen);
                         strings[i][slen] = 0;
                     }
                 } else {
+                    if (pos + str_start + off + 2 > n) continue;
                     int slen = p[0] | (p[1] << 8); p += 2;
                     int j = 0;
                     for (int k = 0; k < slen && j < 490; k++) {
+                        if (pos + str_start + off + 2 + k * 2 + 2 > n) break;
                         unsigned short ch = p[k*2] | (p[k*2+1] << 8);
                         if (ch < 0x80) strings[i][j++] = ch;
                         else if (ch < 0x800) { strings[i][j++]=0xC0|(ch>>6); strings[i][j++]=0x80|(ch&0x3F); }
@@ -588,13 +597,11 @@ static bool extract_label_from_apk(const char* apk_path, char* label_out, int la
             str_pool_end = pos + chunk_size;
             break;
         }
-        if (chunk_size == 0) break;
         pos += chunk_size;
     }
 
     if (!strings || str_count == 0) return false;
 
-    // 找关键字符串的索引
     int idx_application = -1, idx_label = -1, idx_android_ns = -1;
     for (unsigned int i = 0; i < str_count; i++) {
         if (strcmp(strings[i], "application") == 0) idx_application = i;
@@ -602,32 +609,35 @@ static bool extract_label_from_apk(const char* apk_path, char* label_out, int la
         if (strcmp(strings[i], "http://schemas.android.com/apk/res/android") == 0) idx_android_ns = i;
     }
 
-    // 第二步：扫描 XML 树，找 <application> 元素的 label 属性值
+    // 第二步：扫描 XML 树找 <application> 的 label 属性
     bool found = false;
     pos = str_pool_end;
     while (pos + 8 < n) {
         unsigned short chunk_type = buf[pos] | (buf[pos+1] << 8);
         unsigned int chunk_size = buf[pos+4] | (buf[pos+5]<<8) | (buf[pos+6]<<16) | (buf[pos+7]<<24);
+        if (chunk_size < 8 || pos + (int)chunk_size > n) break;
 
         // StartElement (0x0102)
-        if (chunk_type == 0x0102) {
+        if (chunk_type == 0x0102 && chunk_size >= 36) {
+            unsigned int elem_ns = buf[pos+12] | (buf[pos+13]<<8) | (buf[pos+14]<<16) | (buf[pos+15]<<24);
             unsigned int elem_name = buf[pos+16] | (buf[pos+17]<<8) | (buf[pos+18]<<16) | (buf[pos+19]<<24);
-            unsigned short attr_size = buf[pos+20] | (buf[pos+21]<<8);
-            unsigned short attr_count = buf[pos+22] | (buf[pos+23]<<8);
+            // Binary XML StartElement layout:
+            // +20: attributeStart (u16) - offset from chunk start to first attribute
+            // +22: attributeSize (u16) - size of each attribute (usually 20)
+            // +24: attributeCount (u16)
+            unsigned short attr_start = buf[pos+20] | (buf[pos+21]<<8);
+            unsigned short attr_size = buf[pos+22] | (buf[pos+23]<<8);
+            unsigned short attr_count = buf[pos+24] | (buf[pos+25]<<8);
 
-            if ((int)elem_name == idx_application) {
-                // 找到 <application>！遍历属性
-                int attr_pos = pos + 36; // 属性起始
-                for (int a = 0; a < attr_count; a++) {
-                    if (attr_pos + 20 > n) break;
-                    unsigned int a_ns = *(unsigned int*)(buf + attr_pos);
-                    unsigned int a_name = *(unsigned int*)(buf + attr_pos + 4);
-                    unsigned int a_val = *(unsigned int*)(buf + attr_pos + 8);
+            if ((int)elem_name == idx_application && attr_size >= 20 && attr_count > 0) {
+                int attr_pos = pos + attr_start;
+                for (int a = 0; a < attr_count && attr_pos + attr_size <= pos + (int)chunk_size && attr_pos + 12 <= n; a++) {
+                    unsigned int a_ns = buf[attr_pos] | (buf[attr_pos+1]<<8) | (buf[attr_pos+2]<<16) | (buf[attr_pos+3]<<24);
+                    unsigned int a_name = buf[attr_pos+4] | (buf[attr_pos+5]<<8) | (buf[attr_pos+6]<<16) | (buf[attr_pos+7]<<24);
+                    unsigned int a_val = buf[attr_pos+8] | (buf[attr_pos+9]<<8) | (buf[attr_pos+10]<<16) | (buf[attr_pos+11]<<24);
 
-                    // 检查 namespace=android, name=label
-                    bool ns_ok = (int)a_ns == idx_android_ns;
-                    if (a_ns == 0xFFFFFFFF) ns_ok = true; // 有些manifest不写namespace
-                    if (ns_ok && (int)a_name == idx_label && a_val < str_count) {
+                    bool ns_ok = ((int)a_ns == idx_android_ns) || (a_ns == 0xFFFFFFFF);
+                    if (ns_ok && (int)a_name == idx_label && a_val < str_count && strings[a_val][0]) {
                         strncpy(label_out, strings[a_val], label_len - 1);
                         label_out[label_len - 1] = 0;
                         found = true;
@@ -638,8 +648,6 @@ static bool extract_label_from_apk(const char* apk_path, char* label_out, int la
                 if (found) break;
             }
         }
-
-        if (chunk_size == 0) break;
         pos += chunk_size;
     }
 
@@ -897,7 +905,8 @@ void power_tracker_init_with_dir(const char* module_dir) {
     power_tracker_init();
     load_custom_labels(module_dir);
     load_uid_pkg_map();
-    auto_extract_labels(module_dir);
+    // 注意：自动提取 APK 标签已移除（会导致段错误）
+    // 用户可通过 labels.conf 手动添加映射
 }
 
 void power_tracker_sample() {
