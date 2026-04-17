@@ -519,13 +519,132 @@ static void load_custom_labels(const char* module_dir) {
     fclose(f);
 }
 
-// 尝试用 aapt 提取所有 App label → labels.conf
-// 备选: dumpsys 包列表
+// 尝试从 APK 提取 App 显示名（解析二进制 AndroidManifest.xml 的字符串池）
+// 不依赖 aapt，直接读 ZIP 里的二进制 XML
+static bool extract_label_from_apk(const char* apk_path, char* label_out, int label_len) {
+    // APK 是 ZIP，AndroidManifest.xml 是二进制 XML
+    // 用 unzip 提取到管道
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "unzip -p '%s' AndroidManifest.xml 2>/dev/null", apk_path);
+    FILE* f = popen(cmd, "r");
+    if (!f) return false;
+
+    // 读二进制 XML header
+    unsigned char buf[65536];
+    int n = fread(buf, 1, sizeof(buf), f);
+    pclose(f);
+    if (n < 8) return false;
+
+    // 检查 XML chunk header (type=0x0003)
+    unsigned short type = buf[0] | (buf[1] << 8);
+    if (type != 0x0003) return false;
+
+    // 找字符串池 chunk (type=0x0001)
+    int pos = 8; // 跳过 XML header
+    while (pos + 8 < n) {
+        unsigned short chunk_type = buf[pos] | (buf[pos+1] << 8);
+        unsigned short chunk_hdr  = buf[pos+2] | (buf[pos+3] << 8);
+        unsigned int   chunk_size = buf[pos+4] | (buf[pos+5]<<8) | (buf[pos+6]<<16) | (buf[pos+7]<<24);
+
+        if (chunk_type == 0x0001 && chunk_size > 28) {
+            // 字符串池!
+            unsigned int str_count = buf[pos+8] | (buf[pos+9]<<8) | (buf[pos+10]<<16) | (buf[pos+11]<<24);
+            unsigned int flags = buf[pos+16] | (buf[pos+17]<<8) | (buf[pos+18]<<16) | (buf[pos+19]<<24);
+            unsigned int str_start = buf[pos+20] | (buf[pos+21]<<8) | (buf[pos+22]<<16) | (buf[pos+23]<<24);
+            bool is_utf8 = (flags & 0x00000100) != 0;
+
+            if (str_count == 0 || str_start < 28) break;
+
+            // 字符串偏移表
+            unsigned int* offsets = (unsigned int*)(buf + pos + 28);
+            unsigned char* str_data = buf + pos + str_start;
+
+            // 找 "label" 字符串的索引，以及它的值
+            int label_name_idx = -1;
+            int app_tag_str_idx = -1;
+            char* strings = (char*)malloc(str_count * 256);
+            if (!strings) break;
+
+            // 解析所有字符串
+            for (unsigned int i = 0; i < str_count && i < 1000; i++) {
+                char* s = strings + i * 256;
+                s[0] = 0;
+                unsigned int off = offsets[i];
+                if (str_start + off >= (unsigned)n) continue;
+
+                unsigned char* p = str_data + off;
+                if (is_utf8) {
+                    // UTF-8: 1-2 byte length, then data
+                    int slen;
+                    if (p[0] & 0x80) {
+                        slen = ((p[0] & 0x7F) << 8) | p[1];
+                        p += 2;
+                    } else {
+                        slen = p[0];
+                        p += 1;
+                    }
+                    if (slen > 0 && slen < 255) {
+                        memcpy(s, p, slen);
+                        s[slen] = 0;
+                    }
+                } else {
+                    // UTF-16LE: 2 byte length, then data
+                    int slen = p[0] | (p[1] << 8);
+                    p += 2;
+                    // 简单转 UTF-8
+                    int j = 0;
+                    for (int k = 0; k < slen && j < 250; k++) {
+                        unsigned short ch = p[k*2] | (p[k*2+1] << 8);
+                        if (ch < 0x80) { s[j++] = ch; }
+                        else if (ch < 0x800) { s[j++] = 0xC0|(ch>>6); s[j++] = 0x80|(ch&0x3F); }
+                        else { s[j++] = 0xE0|(ch>>12); s[j++] = 0x80|((ch>>6)&0x3F); s[j++] = 0x80|(ch&0x3F); }
+                    }
+                    s[j] = 0;
+                }
+
+                if (strcmp(s, "label") == 0) label_name_idx = i;
+            }
+
+            // 如果找到 label 名，继续在 XML tree 里找它的值
+            // 简化：直接在字符串池里找第一个非关键字、非空、看起来像应用名的字符串
+            if (label_name_idx >= 0) {
+                // 遍历字符串，找可能是 label 值的
+                // 通常 label 值在 "label" 字符串之后
+                for (unsigned int i = label_name_idx + 1; i < str_count && i < 1000; i++) {
+                    char* s = strings + i * 256;
+                    if (s[0] && strlen(s) > 1 && strlen(s) < 100
+                        && strcmp(s, "theme") != 0
+                        && strcmp(s, "name") != 0
+                        && strcmp(s, "label") != 0
+                        && strstr(s, "http://") == nullptr
+                        && strstr(s, "android") == nullptr
+                        && strstr(s, "com.") == nullptr) {
+                        // 可能是 label 值
+                        strncpy(label_out, s, label_len - 1);
+                        label_out[label_len - 1] = 0;
+                        free(strings);
+                        return true;
+                    }
+                }
+            }
+
+            free(strings);
+            break;
+        }
+
+        if (chunk_size == 0) break;
+        pos += chunk_size;
+    }
+
+    return false;
+}
+
+// 用 pm list packages -f 获取所有包名，再逐个提取 label
 static void auto_extract_labels(const char* module_dir) {
     char labels_path[512];
     snprintf(labels_path, sizeof(labels_path), "%s/labels.conf", module_dir);
 
-    // 先加载已有的（不覆盖用户自定义）
+    // 加载已有映射
     std::unordered_map<std::string, std::string> existing;
     {
         FILE* f = fopen(labels_path, "r");
@@ -545,30 +664,13 @@ static void auto_extract_labels(const char* module_dir) {
         }
     }
 
-    // 找 aapt
-    const char* aapt_paths[] = {
-        "/system/bin/aapt",
-        "/system/bin/aapt2",
-        "/data/local/tmp/aapt",
-        "/data/local/tmp/aapt2",
-        nullptr
-    };
-    const char* aapt = nullptr;
-    for (int i = 0; aapt_paths[i]; i++) {
-        if (access(aapt_paths[i], X_OK) == 0) {
-            aapt = aapt_paths[i];
-            break;
-        }
-    }
-
-    // pm list packages -f → 拿包名→APK路径
+    // pm list packages -f
     FILE* pm = popen("pm list packages -f 2>/dev/null", "r");
     if (!pm) return;
 
     char line[1024];
     int count = 0;
     while (fgets(line, sizeof(line), pm)) {
-        // 格式: package:/data/app/~~xxx/base.apk=com.xxx.yyy
         char* eq = strrchr(line, '=');
         if (!eq) continue;
         *eq = 0;
@@ -578,64 +680,29 @@ static void auto_extract_labels(const char* module_dir) {
         char* nl = strchr(pkg, '\n');
         if (nl) *nl = 0;
 
-        // 跳过已有映射
         if (existing.find(pkg) != existing.end()) continue;
 
         char label[256] = {};
-
-        if (aapt) {
-            // aapt dump badging <apk> | grep "application-label"
-            char cmd[1024];
-            // 先检查 zh-CN locale
-            snprintf(cmd, sizeof(cmd),
-                "%s dump badging '%s' 2>/dev/null | grep \"application-label-zh:\" | head -1 | sed \"s/.*label='//;s/'.*//\"",
-                aapt, apk_path);
-            FILE* f = popen(cmd, "r");
-            if (f) {
-                if (fgets(label, sizeof(label), f)) {
-                    nl = strchr(label, '\n');
-                    if (nl) *nl = 0;
-                }
-                pclose(f);
-            }
-            // 没有 zh 就取默认
-            if (!label[0]) {
-                snprintf(cmd, sizeof(cmd),
-                    "%s dump badging '%s' 2>/dev/null | grep \"application-label:\" | grep -v \"application-label-zh\" | head -1 | sed \"s/.*label='//;s/'.*//\"",
-                    aapt, apk_path);
-                f = popen(cmd, "r");
-                if (f) {
-                    if (fgets(label, sizeof(label), f)) {
-                        nl = strchr(label, '\n');
-                        if (nl) *nl = 0;
-                    }
-                    pclose(f);
-                }
-            }
-        }
-
-        if (label[0]) {
+        if (extract_label_from_apk(apk_path, label, sizeof(label)) && label[0]) {
             existing[pkg] = label;
             count++;
+            if (count <= 5) printf("[proc_monitor] %s → %s\n", pkg, label);
         }
     }
     pclose(pm);
 
     if (count > 0) {
-        // 写回 labels.conf
         FILE* f = fopen(labels_path, "w");
         if (f) {
-            fprintf(f, "# 自动提取的 App 名称映射 (%d 个新 App)\n", count);
-            fprintf(f, "# 格式: 包名=显示名称\n\n");
+            fprintf(f, "# 自动提取的 App 名称 (%d 个)\n", count);
             for (auto& [pkg, label] : existing) {
                 fprintf(f, "%s=%s\n", pkg.c_str(), label.c_str());
             }
             fclose(f);
-            printf("[proc_monitor] 提取了 %d 个 App 名称 → %s\n", count, labels_path);
+            printf("[proc_monitor] 共提取 %d 个 App 名称 → %s\n", count, labels_path);
         }
     }
 
-    // 重新加载
     load_custom_labels(module_dir);
 }
 
