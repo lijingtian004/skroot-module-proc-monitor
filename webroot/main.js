@@ -150,7 +150,7 @@ function renderDrainInfo() {
       note.textContent = '⚠️ 功耗按 CPU 时间占比分摊实际电池功率，仅为估算值（不含屏幕/GPU/网络）';
       note.style.display = '';
     } else {
-      note.textContent = '⚠️ 应用功耗 = 实际电池输出 × CPU 时间占比';
+      note.textContent = '⚠️ 应用功耗 = 该 App 在前台时的电池功率平均值';
       note.style.display = '';
     }
   }
@@ -192,7 +192,10 @@ function renderDrainInfo() {
   // 列表（两种模式共用，功耗字段不同）
   // 按当前模式重新排序
   if (drainMode === 'system') {
+    // 整机模式：只显示曾在前台的 App（avg_battery_mw > 0）
     drainData.sort((a, b) => (b.avg_battery_mw || 0) - (a.avg_battery_mw || 0));
+    const filtered = drainData.filter(a => (a.avg_battery_mw || 0) > 0);
+    if (filtered.length) drainData = filtered;
   }
   let html = '';
   drainData.forEach((a, i) => {
