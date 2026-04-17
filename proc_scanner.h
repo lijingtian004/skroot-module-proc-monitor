@@ -200,5 +200,6 @@ struct AppPowerInfo {
 
 // 应用功耗追踪接口
 void power_tracker_init();
+void power_tracker_init_with_dir(const char* module_dir);  // 带 labels.conf 加载
 void power_tracker_sample();    // 采样一次（后台线程周期调用）
 std::vector<AppPowerInfo> power_tracker_get_top(int n);  // 取 top N 功耗应用

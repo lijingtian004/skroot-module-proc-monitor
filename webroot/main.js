@@ -123,7 +123,7 @@ function renderDrainInfo() {
   // 列表
   let html = '';
   drainData.forEach((a, i) => {
-    const color = a.score > 300 ? 'var(--red)' : a.score > 100 ? 'var(--amber)' : 'var(--green)';
+    const color = a.score > 300000 ? 'var(--red)' : a.score > 100000 ? 'var(--amber)' : 'var(--green)';
     const name = esc(a.label || a.package || `UID ${a.uid}`);
     html += `<div class="drain-row" onclick="showDrainDetail(${i})">
       <div class="drain-rank">${i + 1}</div>
@@ -157,7 +157,7 @@ function showDrainDetail(i) {
       <div class="detail-row"><span class="detail-label">内存占用</span><span class="detail-value">${a.mem_mb} MB</span></div>
       <div class="detail-row"><span class="detail-label">IO 总量</span><span class="detail-value">${a.io_mb} MB</span></div>
       <div class="detail-row"><span class="detail-label">进程数</span><span class="detail-value">${a.procs}</span></div>
-      <div class="detail-row"><span class="detail-label">估计耗电</span><span class="detail-value">${a.score.toFixed(0)} mW</span></div>
+      <div class="detail-row"><span class="detail-label">估计耗电</span><span class="detail-value">${(a.score/1000).toFixed(2)} W</span></div>
     </div>`;
   overlay.classList.add('show');
 }

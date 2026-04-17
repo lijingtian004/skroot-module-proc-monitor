@@ -160,7 +160,7 @@ int skroot_module_main(const char* root_key, const char* module_private_dir) {
 
     // 初始化扫描器
     proc_scanner_init(module_private_dir);
-    power_tracker_init();
+    power_tracker_init_with_dir(module_private_dir);
 
     // 启动后台守护线程
     proc_scanner_start();
@@ -182,7 +182,7 @@ public:
         // 在 WebUI 进程中也需要启动扫描器
         proc_scanner_init(module_private_dir);
         proc_scanner_start();
-        power_tracker_init();
+        power_tracker_init_with_dir(module_private_dir);
     }
 
     bool handleGet(CivetServer* server, struct mg_connection* conn,
@@ -348,7 +348,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("2.0.4")
+SKROOT_MODULE_VERSION("2.0.5")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")

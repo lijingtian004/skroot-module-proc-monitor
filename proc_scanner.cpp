@@ -494,6 +494,31 @@ static std::unordered_map<uid_t, AppPowerInfo> g_power_cache;
 static double g_last_sample_time = 0;
 static double g_prev_total_cpu_sec = 0;  // 上次总 CPU 时间（从 /proc/stat）
 
+// 自定义标签映射（从 labels.conf 加载）
+static std::unordered_map<std::string, std::string> g_custom_labels;
+
+static void load_custom_labels(const char* module_dir) {
+    g_custom_labels.clear();
+    char path[512];
+    snprintf(path, sizeof(path), "%s/labels.conf", module_dir);
+    FILE* f = fopen(path, "r");
+    if (!f) return;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        // 格式: com.xxx.yyy=中文名
+        if (line[0] == '#' || line[0] == '\n') continue;
+        char* eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char* val = eq + 1;
+        // trim newline
+        char* nl = strchr(val, '\n');
+        if (nl) *nl = 0;
+        g_custom_labels[line] = val;
+    }
+    fclose(f);
+}
+
 // 包名 → 中文名 映射
 static const char* pkg_to_label(const char* pkg) {
     struct { const char* pkg; const char* name; } MAP[] = {
@@ -647,6 +672,12 @@ void power_tracker_init() {
     g_prev_total_cpu_sec = 0;
 }
 
+// 带 module_dir 的初始化（用于加载 labels.conf）
+void power_tracker_init_with_dir(const char* module_dir) {
+    power_tracker_init();
+    load_custom_labels(module_dir);
+}
+
 void power_tracker_sample() {
     double now = (double)time(nullptr);
     double dt = g_last_sample_time > 0 ? (now - g_last_sample_time) : 1.0;
@@ -760,9 +791,21 @@ void power_tracker_sample() {
         if (sp && *(sp + 1)) pkg = sp + 1;
         strncpy(info.package_name, pkg, sizeof(info.package_name) - 1);
 
-        // 显示名：优先用中文映射，否则用 comm
-        const char* label = pkg_to_label(pkg);
-        if (!label) label = cur.comm;
+        // 显示名：优先用自定义映射 → 内置映射 → 包名最后一段
+        const char* label = nullptr;
+        // 1. 自定义 labels.conf
+        auto it = g_custom_labels.find(pkg);
+        if (it != g_custom_labels.end()) label = it->second.c_str();
+        // 2. 内置映射
+        if (!label) label = pkg_to_label(pkg);
+        // 3. 包名最后一段
+        if (!label) {
+            const char* last_dot = strrchr(pkg, '.');
+            if (last_dot && strlen(last_dot + 1) > 1)
+                label = last_dot + 1;
+            else
+                label = cur.comm;
+        }
         strncpy(info.label, label, sizeof(info.label) - 1);
 
         // 功耗评分改为 估计耗电功率 (mW)
