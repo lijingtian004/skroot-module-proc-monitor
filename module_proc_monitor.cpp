@@ -163,6 +163,56 @@ public:
 
     bool handleGet(CivetServer* server, struct mg_connection* conn,
                    const std::string& path, const std::string& query) override {
+        // API 端点同时支持 GET（兼容性）
+        if (path == "/api/charging") {
+            ChargingInfo ch = charging_get_info();
+            std::string json = build_charging_json(ch);
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
+        if (path == "/api/events") {
+            int n = 100;
+            if (!query.empty()) {
+                auto pos = query.find("limit=");
+                if (pos != std::string::npos) {
+                    int parsed = atoi(query.c_str() + pos + 6);
+                    if (parsed > 0 && parsed <= 2000) n = parsed;
+                }
+            }
+            auto events = g_event_buf.get_recent(n);
+            std::string json = build_event_json(events);
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
+        if (path == "/api/alerts") {
+            int n = 50;
+            if (!query.empty()) {
+                auto pos = query.find("limit=");
+                if (pos != std::string::npos) {
+                    int parsed = atoi(query.c_str() + pos + 6);
+                    if (parsed > 0 && parsed <= 1000) n = parsed;
+                }
+            }
+            auto alerts = g_event_buf.get_alerts(n);
+            std::string json = build_event_json(alerts);
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
+        if (path == "/api/stats") {
+            char buf[256];
+            snprintf(buf, sizeof(buf),
+                "{\"total_events\":%lld,\"total_alerts\":%lld}",
+                (long long)g_event_buf.total_events(),
+                (long long)g_event_buf.total_alerts());
+            kernel_module::webui::send_text(conn, 200, buf);
+            return true;
+        }
+        if (path == "/api/procs") {
+            auto procs = proc_scanner_get_all_procs();
+            std::string json = build_procs_json(procs);
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
         // 静态文件由 CivetWeb 默认处理
         return false;
     }
@@ -224,7 +274,10 @@ public:
 
         if (path == "/api/charging") {
             // 获取充电信息
+            printf("[proc_monitor] /api/charging called\n");
             ChargingInfo ch = charging_get_info();
+            printf("[proc_monitor] battery_level=%d status=%s supply_count=%d\n",
+                   ch.battery_level, ch.battery_status, ch.supply_count);
             std::string json = build_charging_json(ch);
             kernel_module::webui::send_text(conn, 200, json);
             return true;

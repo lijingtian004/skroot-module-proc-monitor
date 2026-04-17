@@ -43,7 +43,12 @@ function classifyProc(p) {
 // ============ API ============
 async function api(path, body = '') {
   try {
-    const resp = await fetch(new URL(path, window.location.href), { method: 'POST', body });
+    // 先尝试 POST
+    let resp = await fetch(new URL(path, window.location.href), { method: 'POST', body });
+    if (resp.ok) return await resp.text();
+    // POST 失败则回退 GET
+    const url = body ? `${path}?limit=${body}` : path;
+    resp = await fetch(new URL(url, window.location.href), { method: 'GET' });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.text();
   } catch (e) { console.error(`API [${path}]:`, e); return null; }
