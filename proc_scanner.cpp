@@ -269,3 +269,34 @@ void proc_scanner_stop() {
 void proc_scanner_scan_once() {
     scan_proc_dir();
 }
+
+std::vector<ProcInfo> proc_scanner_get_all_procs() {
+    std::vector<ProcInfo> result;
+    DIR* dir = opendir("/proc");
+    if (!dir) return result;
+
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != nullptr) {
+        if (ent->d_type != DT_DIR) continue;
+        char* endptr;
+        long pid = strtol(ent->d_name, &endptr, 10);
+        if (*endptr != '\0' || pid <= 0) continue;
+
+        ProcInfo info{};
+        info.pid = (pid_t)pid;
+        
+        if (!read_proc_comm(info.pid, info.comm, sizeof(info.comm))) continue;
+        read_proc_cmdline(info.pid, info.cmdline, sizeof(info.cmdline));
+        read_proc_status(info.pid, &info.ppid, &info.uid);
+        
+        result.push_back(info);
+    }
+    closedir(dir);
+
+    // 按 PID 排序
+    std::sort(result.begin(), result.end(), [](const ProcInfo& a, const ProcInfo& b) {
+        return a.pid < b.pid;
+    });
+
+    return result;
+}
