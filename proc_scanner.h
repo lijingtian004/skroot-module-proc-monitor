@@ -182,6 +182,33 @@ struct ChargingInfo {
 // 读取当前充电信息
 ChargingInfo charging_get_info();
 
+// ============ 悬浮窗实时数据 ============
+
+struct OverlayData {
+    // CPU
+    double cpu_total_pct;       // 总 CPU 占用 %
+    double cpu_per_core[16];    // 每核心占用 %（最多 16 核）
+    int    cpu_core_count;
+
+    // GPU
+    double gpu_pct;             // GPU 占用 %（-1 表示不可用）
+    char   gpu_name[32];        // GPU 驱动名
+
+    // 电池
+    double power_mw;            // 实时功率 mW
+    int    battery_level;       // 电量 %
+    int    battery_temp;        // 温度 0.1°C
+    char   battery_status[32];  // 状态
+
+    // 前台应用
+    char   fg_app[128];         // 前台 App 包名
+    double fg_cpu_pct;          // 前台 App CPU 占用
+    int64_t fg_mem_mb;          // 前台 App 内存 MB
+};
+
+// 读取悬浮窗实时数据
+OverlayData overlay_get_data();
+
 // ============ 应用功耗追踪 ============
 
 // 单个应用(UID)的功耗信息

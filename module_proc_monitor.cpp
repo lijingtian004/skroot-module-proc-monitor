@@ -167,6 +167,35 @@ static std::string build_power_json(const std::vector<AppPowerInfo>& apps) {
     return result;
 }
 
+static std::string build_overlay_json() {
+    OverlayData od = overlay_get_data();
+    cJSON* o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "cpu_total", (int)(od.cpu_total_pct * 10) / 10.0);
+    cJSON* cores = cJSON_CreateArray();
+    for (int i = 0; i < od.cpu_core_count; i++)
+        cJSON_AddItemToArray(cores, cJSON_CreateNumber((int)(od.cpu_per_core[i] * 10) / 10.0));
+    cJSON_AddItemToObject(o, "cpu_cores", cores);
+    if (od.gpu_pct >= 0) {
+        cJSON_AddNumberToObject(o, "gpu_pct", (int)(od.gpu_pct * 10) / 10.0);
+        cJSON_AddStringToObject(o, "gpu_name", od.gpu_name);
+    } else {
+        cJSON_AddNumberToObject(o, "gpu_pct", -1);
+        cJSON_AddStringToObject(o, "gpu_name", "");
+    }
+    cJSON_AddNumberToObject(o, "power_mw", (int)(od.power_mw * 10) / 10.0);
+    cJSON_AddNumberToObject(o, "bat_level", od.battery_level);
+    cJSON_AddNumberToObject(o, "bat_temp", od.battery_temp);
+    cJSON_AddStringToObject(o, "bat_status", od.battery_status);
+    cJSON_AddStringToObject(o, "fg_app", od.fg_app);
+    cJSON_AddNumberToObject(o, "fg_cpu", (int)(od.fg_cpu_pct * 10) / 10.0);
+    cJSON_AddNumberToObject(o, "fg_mem", od.fg_mem_mb);
+    char* raw = cJSON_PrintUnformatted(o);
+    std::string result(raw);
+    cJSON_free(raw);
+    cJSON_Delete(o);
+    return result;
+}
+
 // ============ 模块入口 ============
 
 static std::string g_module_dir;
@@ -198,6 +227,10 @@ class ProcMonitorWebHandler : public kernel_module::WebUIHttpHandler {
 public:
     void onPrepareCreate(const char* root_key, const char* module_private_dir, uint32_t port) override {
         printf("[proc_monitor] WebUI starting on port %d\n", port);
+
+        // 写端口到文件，供悬浮窗应用读取
+        FILE* f = fopen("/data/local/tmp/skroot_webui_port", "w");
+        if (f) { fprintf(f, "%u\n", port); fclose(f); }
 
         // 在 WebUI 进程中也需要启动扫描器
         proc_scanner_init(module_private_dir);
@@ -275,6 +308,11 @@ public:
             return true;
         }
         // 静态文件由 CivetWeb 默认处理
+        if (path == "/api/overlay") {
+            std::string json = build_overlay_json();
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
         return false;
     }
 
@@ -357,6 +395,12 @@ public:
             return true;
         }
 
+        if (path == "/api/overlay") {
+            std::string json = build_overlay_json();
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
+
         return false;
     }
 
@@ -370,7 +414,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("2.2.2")
+SKROOT_MODULE_VERSION("2.3.0")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")

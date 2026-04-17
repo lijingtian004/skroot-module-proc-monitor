@@ -474,6 +474,164 @@ ChargingInfo charging_get_info() {
     return info;
 }
 
+// ============ 悬浮窗实时数据 ============
+
+static uid_t find_foreground_uid();  // 前向声明（定义在采样历史部分）
+
+// 上次各核心的 CPU 时间（用于计算占用率）
+static unsigned long g_prev_cpu_total[16] = {};
+static unsigned long g_prev_cpu_idle[16] = {};
+static bool g_cpu_initialized = false;
+
+// 读取逐核心 CPU 占用率
+static void read_per_core_cpu(double* per_core, int max_cores, int* out_count, double* total_pct) {
+    FILE* f = fopen("/proc/stat", "r");
+    if (!f) { *out_count = 0; *total_pct = 0; return; }
+
+    char line[256];
+    int core = 0;
+    double total_sum = 0;
+
+    // 跳过第一行（汇总的 "cpu"），从 "cpu0" 开始
+    fgets(line, sizeof(line), f); // skip "cpu ..." line
+
+    while (fgets(line, sizeof(line), f) && core < max_cores) {
+        if (strncmp(line, "cpu", 3) != 0 || line[3] < '0' || line[3] > '9') break;
+
+        unsigned long user, nice, sys, idle, iowait, irq, softirq, steal;
+        int n = sscanf(line + 4, "%lu %lu %lu %lu %lu %lu %lu %lu",
+                       &user, &nice, &sys, &idle, &iowait, &irq, &softirq, &steal);
+        if (n < 4) { core++; continue; }
+
+        unsigned long total = user + nice + sys + idle + iowait + irq + softirq + (n >= 8 ? steal : 0);
+        unsigned long idle_total = idle + iowait;
+
+        if (g_cpu_initialized && total > g_prev_cpu_total[core]) {
+            unsigned long d_total = total - g_prev_cpu_total[core];
+            unsigned long d_idle = idle_total - g_prev_cpu_idle[core];
+            per_core[core] = d_total > 0 ? (double)(d_total - d_idle) / d_total * 100.0 : 0;
+        } else {
+            per_core[core] = 0;
+        }
+
+        g_prev_cpu_total[core] = total;
+        g_prev_cpu_idle[core] = idle_total;
+        total_sum += per_core[core];
+        core++;
+    }
+    fclose(f);
+
+    g_cpu_initialized = true;
+    *out_count = core;
+    *total_pct = core > 0 ? total_sum / core : 0;
+}
+
+// 读取 GPU 占用率（尝试多种路径）
+static double read_gpu_pct(char* name_out, int name_sz) {
+    name_out[0] = 0;
+
+    // 高通 Adreno: /sys/class/kgsl/kgsl-3d0/gpubusy
+    {
+        FILE* f = fopen("/sys/class/kgsl/kgsl-3d0/gpubusy", "r");
+        if (f) {
+            unsigned long busy = 0, total = 0;
+            if (fscanf(f, "%lu %lu", &busy, &total) == 2 && total > 0) {
+                fclose(f);
+                strncpy(name_out, "Adreno", name_sz - 1);
+                return (double)busy / total * 100.0;
+            }
+            fclose(f);
+        }
+    }
+
+    // 高通 Adreno 备选: /sys/class/kgsl/kgsl-3d0/gpu_busy_percentage
+    {
+        FILE* f = fopen("/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage", "r");
+        if (f) {
+            char buf[32] = {};
+            fread(buf, 1, sizeof(buf) - 1, f);
+            fclose(f);
+            strncpy(name_out, "Adreno", name_sz - 1);
+            return atof(buf);
+        }
+    }
+
+    // Mali: /sys/devices/platform/mali/utilization
+    {
+        FILE* f = fopen("/sys/devices/platform/mali/utilization", "r");
+        if (f) {
+            int val = 0;
+            if (fscanf(f, "%d", &val) == 1) {
+                fclose(f);
+                strncpy(name_out, "Mali", name_sz - 1);
+                return val / 100.0; // 通常是千分比
+            }
+            fclose(f);
+        }
+    }
+
+    // Mali 备选: /sys/class/devfreq/mali/ 或 /sys/kernel/gpu/
+    {
+        FILE* f = fopen("/sys/kernel/gpu/gpu_busy", "r");
+        if (f) {
+            int val = 0;
+            if (fscanf(f, "%d", &val) == 1) {
+                fclose(f);
+                strncpy(name_out, "GPU", name_sz - 1);
+                return val;
+            }
+            fclose(f);
+        }
+    }
+
+    return -1; // 不可用
+}
+
+// 读取前台 App 的 CPU 和内存
+static void get_fg_app_info(char* pkg_out, int pkg_sz, double* cpu_pct, int64_t* mem_mb) {
+    pkg_out[0] = 0;
+    *cpu_pct = 0;
+    *mem_mb = 0;
+
+    // 从功耗缓存中找前台 App
+    uid_t fg_uid = find_foreground_uid();
+    if (fg_uid == (uid_t)-1) return;
+
+    auto it = g_power_cache.find(fg_uid);
+    if (it != g_power_cache.end()) {
+        strncpy(pkg_out, it->second.package_name, pkg_sz - 1);
+        *cpu_pct = it->second.cpu_usage_pct;
+        *mem_mb = it->second.mem_rss_kb / 1024;
+    }
+}
+
+OverlayData overlay_get_data() {
+    OverlayData data{};
+    memset(&data, 0, sizeof(data));
+    data.gpu_pct = -1;
+    data.cpu_core_count = 0;
+
+    // CPU
+    read_per_core_cpu(data.cpu_per_core, 16, &data.cpu_core_count, &data.cpu_total_pct);
+
+    // GPU
+    data.gpu_pct = read_gpu_pct(data.gpu_name, sizeof(data.gpu_name));
+
+    // 电池
+    ChargingInfo ch = charging_get_info();
+    data.power_mw = 0;
+    if (ch.battery_current_ma != -1 && ch.battery_voltage_mv != -1)
+        data.power_mw = abs(ch.battery_current_ma) * (double)ch.battery_voltage_mv / 1000.0;
+    data.battery_level = ch.battery_level;
+    data.battery_temp = ch.battery_temp;
+    strncpy(data.battery_status, ch.battery_status, sizeof(data.battery_status) - 1);
+
+    // 前台应用
+    get_fg_app_info(data.fg_app, sizeof(data.fg_app), &data.fg_cpu_pct, &data.fg_mem_mb);
+
+    return data;
+}
+
 // ============ 应用功耗追踪 ============
 
 #include <vector>
