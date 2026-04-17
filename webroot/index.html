@@ -52,6 +52,10 @@
       <button class="tab" data-tab="history" onclick="switchTab('history')">
         <span class="tab-icon">📋</span> 历史
       </button>
+      <button class="tab" data-tab="procs" onclick="switchTab('procs')">
+        <span class="tab-icon">📊</span> 进程
+        <span class="badge" id="procBadge">0</span>
+      </button>
     </div>
 
     <!-- 实时事件面板 -->
@@ -92,6 +96,18 @@
         </select>
       </div>
       <div class="event-list" id="historyList">
+        <div class="loading">加载中...</div>
+      </div>
+    </div>
+
+    <!-- 进程列表面板 -->
+    <div class="panel" id="panel-procs">
+      <div class="panel-toolbar">
+        <input type="text" class="search-input" id="procSearchInput" placeholder="搜索进程名、PID或命令行..." oninput="filterProcs()">
+        <button class="btn-sm" onclick="fetchProcs()">🔄 刷新</button>
+      </div>
+      <div class="proc-count" id="procCount">加载中...</div>
+      <div class="event-list" id="procList">
         <div class="loading">加载中...</div>
       </div>
     </div>
