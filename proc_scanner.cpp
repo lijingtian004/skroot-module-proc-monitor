@@ -431,7 +431,13 @@ ChargingInfo charging_get_info() {
                 if (ps->capacity >= 0) info.battery_level = ps->capacity;
                 if (ps->temp > 0) info.battery_temp = ps->temp;
                 if (ps->voltage_uv > 0) info.battery_voltage_mv = ps->voltage_uv / 1000;
-                if (ps->current_ua != 0) info.battery_current_ma = ps->current_ua / 1000;
+                // 自适应判断 current_now 单位：
+                // |值| > 100000 → μA，除以 1000 得 mA
+                // |值| <= 100000 → mA，直接用
+                if (ps->current_ua != 0) {
+                    int abs_val = ps->current_ua < 0 ? -ps->current_ua : ps->current_ua;
+                    info.battery_current_ma = (abs_val > 100000) ? (ps->current_ua / 1000) : ps->current_ua;
+                }
                 if (ps->charge_full_uah > 0) info.charge_full_uah = ps->charge_full_uah;
                 if (ps->charge_full_design_uah > 0) info.charge_full_design_uah = ps->charge_full_design_uah;
                 if (ps->status[0]) strncpy(info.battery_status, ps->status, sizeof(info.battery_status) - 1);
