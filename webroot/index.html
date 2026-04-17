@@ -104,7 +104,27 @@
     <div class="panel" id="panel-procs">
       <div class="panel-toolbar">
         <input type="text" class="search-input" id="procSearchInput" placeholder="搜索进程名、PID或命令行..." oninput="filterProcs()">
-        <button class="btn-sm" onclick="fetchProcs()">🔄 刷新</button>
+        <button class="btn-sm" onclick="fetchProcs()">🔄</button>
+      </div>
+      <div class="cat-bar">
+        <button class="cat-btn active" data-cat="all" onclick="switchProcCat('all')">
+          <span class="cat-label">全部</span>
+        </button>
+        <button class="cat-btn" data-cat="system" onclick="switchProcCat('system')">
+          <span class="cat-icon">🔵</span><span class="cat-label">系统</span><span class="cat-count">0</span>
+        </button>
+        <button class="cat-btn" data-cat="service" onclick="switchProcCat('service')">
+          <span class="cat-icon">🟢</span><span class="cat-label">服务</span><span class="cat-count">0</span>
+        </button>
+        <button class="cat-btn" data-cat="app" onclick="switchProcCat('app')">
+          <span class="cat-icon">🟡</span><span class="cat-label">应用</span><span class="cat-count">0</span>
+        </button>
+        <button class="cat-btn" data-cat="shell" onclick="switchProcCat('shell')">
+          <span class="cat-icon">🟠</span><span class="cat-label">调试</span><span class="cat-count">0</span>
+        </button>
+        <button class="cat-btn" data-cat="risky" onclick="switchProcCat('risky')">
+          <span class="cat-icon">🔴</span><span class="cat-label">可疑</span><span class="cat-count">0</span>
+        </button>
       </div>
       <div class="proc-count" id="procCount">加载中...</div>
       <div class="event-list" id="procList">
