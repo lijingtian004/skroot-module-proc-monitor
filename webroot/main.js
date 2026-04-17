@@ -1,16 +1,16 @@
 // main.js — Multi-page process monitor
 
 let allEvents = [];
-let allAlerts = [];
+let all告警s = [];
 let allProcs = [];
 let filteredProcs = [];
 let currentProcCat = 'all';
-let stats = { total: 0, alerts: 0, exec: 0, exit: 0 };
+let stats = { total: 0, 条告警: 0, exec: 0, exit: 0 };
 let currentPage = 'overview';
-let pollTimer = null;
+let poll时间r = null;
 let chargingInfo = null;
 
-// ============ Process Categories ============
+// ============ 进程 Categories ============
 const RISKY_NAMES = [
   'magisk', 'magiskd', 'su', 'frida', 'lsposed', 'lsposedd',
   'riru', 'zygisk', 'shamiko', 'xposed', 'edxposed',
@@ -55,9 +55,9 @@ async function fetchEvents() {
   if (raw) try { allEvents = JSON.parse(raw); } catch (e) {}
 }
 
-async function fetchAlerts() {
+async function fetch告警s() {
   const raw = await api('/api/alerts', '100');
-  if (raw) try { allAlerts = JSON.parse(raw); } catch (e) {}
+  if (raw) try { all告警s = JSON.parse(raw); } catch (e) {}
 }
 
 async function fetchStats() {
@@ -91,7 +91,7 @@ async function fetchCharging() {
 
 async function manualScan() {
   await api('/api/scan');
-  setTimeout(pollAll, 300);
+  set时间out(pollAll, 300);
 }
 
 // ============ Page Navigation ============
@@ -100,9 +100,9 @@ function switchPage(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
   // Refresh data for current page
-  if (page === 'overview') { updateStatsUI(); updateOverviewAlerts(); updateOverviewSummary(); updateOverviewPower(); }
+  if (page === 'overview') { updateStatsUI(); updateOverview告警s(); updateOverviewSummary(); updateOverviewPower(); }
   if (page === 'procs') { fetchProcs(); filterProcs(); }
-  if (page === 'alerts') renderAlertList();
+  if (page === 'alerts') render告警List();
   if (page === 'log') filterHistory();
   if (page === 'power') fetchCharging();
 }
@@ -110,24 +110,24 @@ function switchPage(page) {
 // ============ UI Updates ============
 function updateStatsUI() {
   document.getElementById('statTotal').textContent = fmtN(stats.total);
-  document.getElementById('statAlerts').textContent = fmtN(stats.alerts);
+  document.getElementById('stat告警s').textContent = fmtN(stats.alerts);
   document.getElementById('statExec').textContent = fmtN(stats.total - stats.exit - stats.alerts);
   document.getElementById('statExit').textContent = fmtN(stats.exit || 0);
   // Nav badges
-  const ab = document.getElementById('navAlertBadge');
+  const ab = document.getElementById('nav告警Badge');
   if (stats.alerts > 0) { ab.style.display = 'block'; ab.textContent = stats.alerts; }
   else { ab.style.display = 'none'; }
 }
 
-function updateOverviewAlerts() {
-  const el = document.getElementById('overviewAlerts');
-  const count = document.getElementById('overviewAlertCount');
-  count.textContent = allAlerts.length;
-  if (allAlerts.length === 0) {
-    el.innerHTML = '<div class="empty-hint">No alerts detected</div>';
+function updateOverview告警s() {
+  const el = document.getElementById('overview告警s');
+  const count = document.getElementById('overview告警Count');
+  count.textContent = all告警s.length;
+  if (all告警s.length === 0) {
+    el.innerHTML = '<div class="empty-hint">暂无告警</div>';
     return;
   }
-  const recent = allAlerts.slice(0, 5);
+  const recent = all告警s.slice(0, 5);
   el.innerHTML = recent.map(ev => `
     <div class="event-item alert-item" onclick='showDetail(${JSON.stringify(ev).replace(/'/g, "&#39;")})'>
       <span class="event-icon alert">⚠</span>
@@ -135,7 +135,7 @@ function updateOverviewAlerts() {
         <div class="event-main"><span class="comm">${esc(ev.comm)}</span><span class="pid">PID ${ev.pid}</span></div>
         <div class="event-reason">${esc(ev.reason || '')}</div>
       </div>
-      <span class="event-time">${fmtTime(ev.ts)}</span>
+      <span class="event-time">${fmt时间(ev.ts)}</span>
     </div>
   `).join('');
 }
@@ -153,7 +153,7 @@ function updateOverviewSummary() {
 function updateOverviewPower() {
   if (!chargingInfo) return;
   document.getElementById('miniBatt').textContent = chargingInfo.battery_level >= 0 ? chargingInfo.battery_level : '--';
-  document.getElementById('miniBattStatus').textContent = chargingInfo.battery_status || '--';
+  document.getElementById('miniBatt状态').textContent = chargingInfo.battery_status || '--';
 }
 
 function updateProcCounts() {
@@ -165,7 +165,7 @@ function updateProcCounts() {
     if (cs) cs.textContent = counts[cat] || 0;
   });
   const count = document.getElementById('procCount');
-  if (count) count.textContent = `${counts.all} processes`;
+  if (count) count.textContent = `${counts.all} 个进程`;
   const pb = document.getElementById('navProcBadge');
   if (pb) { pb.style.display = 'block'; pb.textContent = counts.all; }
 }
@@ -174,7 +174,7 @@ function updateProcCounts() {
 function renderEventItem(ev, isNew) {
   const div = document.createElement('div');
   const cls = ev.type === 0 ? 'exec' : ev.type === 1 ? 'exit' : 'alert';
-  div.className = `event-item ${cls}-item${isNew ? ' new' : ''}`;
+  div.class名称 = `event-item ${cls}-item${isNew ? ' new' : ''}`;
   div.onclick = () => showDetail(ev);
   const icon = ev.type === 0 ? '▶' : ev.type === 1 ? '■' : '⚠';
   const reason = ev.reason ? `<div class="event-reason">⚠ ${esc(ev.reason)}</div>` : '';
@@ -183,44 +183,44 @@ function renderEventItem(ev, isNew) {
     <span class="event-icon ${cls}">${icon}</span>
     <div class="event-body">
       <div class="event-main"><span class="comm">${esc(ev.comm)}</span><span class="pid">PID ${ev.pid}</span></div>
-      <div class="event-sub">${cmd || `PPID ${ev.ppid} · ${uidName(ev.uid)}`}</div>
+      <div class="event-sub">${cmd || `PPID ${ev.ppid} · ${uid名称(ev.uid)}`}</div>
       ${reason}
     </div>
-    <span class="event-time">${fmtTime(ev.ts)}</span>
+    <span class="event-time">${fmt时间(ev.ts)}</span>
   `;
   return div;
 }
 
-function renderAlertList() {
+function render告警List() {
   const list = document.getElementById('alertList');
   const summary = document.getElementById('alertSummary');
-  if (allAlerts.length === 0) {
-    list.innerHTML = '<div class="empty-state"><span class="empty-icon">▪</span><p>All clear</p></div>';
-    summary.textContent = 'No alerts';
+  if (all告警s.length === 0) {
+    list.innerHTML = '<div class="empty-state"><span class="empty-icon">▪</span><p>未检测到可疑进程</p></div>';
+    summary.textContent = 'No 条告警';
     return;
   }
-  summary.textContent = `${allAlerts.length} alerts`;
+  summary.textContent = `${all告警s.length} 条告警`;
   list.innerHTML = '';
-  for (const ev of allAlerts.slice(0, 200)) list.appendChild(renderEventItem(ev, false));
+  for (const ev of all告警s.slice(0, 200)) list.appendChild(renderEventItem(ev, false));
 }
 
 function renderHistoryList(events) {
   const list = document.getElementById('historyList');
   list.innerHTML = '';
-  if (events.length === 0) { list.innerHTML = '<div class="loading">No matches</div>'; return; }
+  if (events.length === 0) { list.innerHTML = '<div class="loading">无匹配记录</div>'; return; }
   for (const ev of events.slice(0, 200)) list.appendChild(renderEventItem(ev, false));
 }
 
 // ============ Render: Procs ============
 function renderProcItem(p) {
   const div = document.createElement('div');
-  div.className = 'event-item';
+  div.class名称 = 'event-item';
   div.onclick = () => showProcDetail(p);
   const cmd = p.cmdline ? esc(p.cmdline.substring(0, 60)) : '';
   div.innerHTML = `
     <div class="event-body">
       <div class="event-main"><span class="comm">${esc(p.comm)}</span><span class="pid">PID ${p.pid}</span></div>
-      <div class="event-sub">${cmd || `PPID ${p.ppid} · ${uidName(p.uid)}`}</div>
+      <div class="event-sub">${cmd || `PPID ${p.ppid} · ${uid名称(p.uid)}`}</div>
     </div>
   `;
   return div;
@@ -229,7 +229,7 @@ function renderProcItem(p) {
 function renderProcsList(procs) {
   const list = document.getElementById('procList');
   list.innerHTML = '';
-  if (procs.length === 0) { list.innerHTML = '<div class="loading">No processes</div>'; return; }
+  if (procs.length === 0) { list.innerHTML = '<div class="loading">无进程数据</div>'; return; }
   for (const p of procs.slice(0, 500)) list.appendChild(renderProcItem(p));
 }
 
@@ -242,13 +242,13 @@ function filterProcs() {
     p.comm.toLowerCase().includes(kw) || String(p.pid).includes(kw) || (p.cmdline && p.cmdline.toLowerCase().includes(kw))
   );
   const count = document.getElementById('procCount');
-  if (count) count.textContent = kw ? `${filteredProcs.length} / ${allProcs.length}` : `${allProcs.length} processes`;
+  if (count) count.textContent = kw ? `${filteredProcs.length} / ${allProcs.length}` : `${allProcs.length} 个进程`;
   renderProcsList(filteredProcs);
 }
 
 function filterHistory() {
   const kw = document.getElementById('searchInput').value.toLowerCase();
-  const tf = document.getElementById('filterType').value;
+  const tf = document.getElementById('filter类型').value;
   let filtered = allEvents;
   if (tf !== 'all') { const m = { exec: 0, exit: 1, alert: 2 }; filtered = filtered.filter(e => e.type === m[tf]); }
   if (kw) filtered = filtered.filter(e => e.comm.toLowerCase().includes(kw) || String(e.pid).includes(kw) || (e.cmdline && e.cmdline.toLowerCase().includes(kw)));
@@ -266,11 +266,11 @@ function showDetail(ev) {
   const overlay = document.getElementById('modalOverlay');
   const body = document.getElementById('modalBody');
   const title = document.getElementById('modalTitle');
-  const typeLabel = ev.type === 0 ? 'Created' : ev.type === 1 ? 'Exited' : 'Alert';
+  const typeLabel = ev.type === 0 ? '新建' : ev.type === 1 ? '退出' : '告警';
   title.textContent = `${ev.comm} — ${typeLabel}`;
-  const rows = [['Type', typeLabel], ['Time', fmtTimestamp(ev.ts)], ['PID', ev.pid], ['PPID', ev.ppid], ['UID', `${ev.uid} (${uidName(ev.uid)})`], ['Name', ev.comm]];
-  if (ev.cmdline) rows.push(['Cmdline', ev.cmdline]);
-  if (ev.reason) rows.push(['Reason', ev.reason]);
+  const rows = [['类型', typeLabel], ['时间', fmt时间stamp(ev.ts)], ['PID', ev.pid], ['PPID', ev.ppid], ['UID', `${ev.uid} (${uid名称(ev.uid)})`], ['名称', ev.comm]];
+  if (ev.cmdline) rows.push(['命令行', ev.cmdline]);
+  if (ev.reason) rows.push(['原因', ev.reason]);
   body.innerHTML = rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(String(v))}</span></div>`).join('');
   overlay.classList.add('show');
 }
@@ -279,9 +279,9 @@ function showProcDetail(p) {
   const overlay = document.getElementById('modalOverlay');
   const body = document.getElementById('modalBody');
   const title = document.getElementById('modalTitle');
-  title.textContent = `${p.comm} — Process`;
-  const rows = [['PID', p.pid], ['PPID', p.ppid], ['UID', `${p.uid} (${uidName(p.uid)})`], ['Name', p.comm]];
-  if (p.cmdline) rows.push(['Cmdline', p.cmdline]);
+  title.textContent = `${p.comm} — 进程`;
+  const rows = [['PID', p.pid], ['PPID', p.ppid], ['UID', `${p.uid} (${uid名称(p.uid)})`], ['名称', p.comm]];
+  if (p.cmdline) rows.push(['命令行', p.cmdline]);
   body.innerHTML = rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(String(v))}</span></div>`).join('');
   overlay.classList.add('show');
 }
@@ -293,7 +293,7 @@ function renderChargingInfo() {
   if (!chargingInfo) return;
   const ov = document.getElementById('chargingOverview');
   const lvl = chargingInfo.battery_level >= 0 ? chargingInfo.battery_level : '--';
-  const status = chargingInfo.battery_status || 'Unknown';
+  const status = chargingInfo.battery_status || '未知';
   const speed = chargingInfo.charger_speed || 'unknown';
   ov.innerHTML = `
     <div class="charge-big-status">${esc(status)}</div>
@@ -301,36 +301,36 @@ function renderChargingInfo() {
       <div class="charge-level-num">${lvl}<span style="font-size:20px;color:var(--text-3)">%</span></div>
       <div class="charge-level-bar"><div class="charge-level-fill" style="width:${lvl}%"></div></div>
     </div>
-    <div class="charge-speed-label">${esc(speed)} charge</div>
+    <div class="charge-speed-label">${esc(speed)} 充电</div>
     ${chargingInfo.battery_health_pct ? `
     <div class="charge-health-bar">
-      <div class="charge-health-label">Battery Health</div>
+      <div class="charge-health-label">电池健康</div>
       <div class="charge-health-value">${chargingInfo.battery_health_pct.toFixed(1)}%</div>
       <div class="charge-health-track"><div class="charge-health-fill" style="width:${chargingInfo.battery_health_pct}%"></div></div>
     </div>` : ''}
   `;
-  const det = document.getElementById('chargingDetails');
+  const det = document.getElementById('charging详细信息');
   const rows = [];
-  if (chargingInfo.battery_temp > 0) rows.push(['Temperature', (chargingInfo.battery_temp / 10).toFixed(1) + ' °C']);
-  if (chargingInfo.battery_voltage_mv > 0) rows.push(['Voltage', chargingInfo.battery_voltage_mv + ' mV']);
+  if (chargingInfo.battery_temp > 0) rows.push(['温度erature', (chargingInfo.battery_temp / 10).toFixed(1) + ' °C']);
+  if (chargingInfo.battery_voltage_mv > 0) rows.push(['电压', chargingInfo.battery_voltage_mv + ' mV']);
   if (chargingInfo.battery_current_ma !== -1) rows.push(['Current', chargingInfo.battery_current_ma + ' mA']);
-  if (chargingInfo.charge_type && chargingInfo.charge_type !== 'N/A') rows.push(['Charge Type', chargingInfo.charge_type]);
+  if (chargingInfo.charge_type && chargingInfo.charge_type !== 'N/A') rows.push(['Charge 类型', chargingInfo.charge_type]);
   if (chargingInfo.battery_technology) rows.push(['Technology', chargingInfo.battery_technology]);
   if (chargingInfo.battery_health) rows.push(['Health', chargingInfo.battery_health]);
   if (rows.length) {
-    det.innerHTML = `<div class="section-title">Details</div><div class="detail-grid">${rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(v)}</span></div>`).join('')}</div>`;
+    det.innerHTML = `<div class="section-title">详细信息</div><div class="detail-grid">${rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(v)}</span></div>`).join('')}</div>`;
   }
   const sup = document.getElementById('chargingSupplies');
   if (chargingInfo.supplies && chargingInfo.supplies.length) {
-    let html = '<div class="section-title">Power Supplies</div>';
+    let html = '<div class="section-title">电源设备</div>';
     for (const s of chargingInfo.supplies) {
       html += `<div class="supply-card">
         <div class="supply-header">${esc(s.name)} <span class="supply-type-badge">${esc(s.type)}</span></div>
         <div class="supply-rows">
-          ${s.status ? `<div class="supply-kv"><span class="k">Status</span><span class="v">${esc(s.status)}</span></div>` : ''}
-          ${s.capacity ? `<div class="supply-kv"><span class="k">Capacity</span><span class="v">${s.capacity}%</span></div>` : ''}
-          ${s.temp ? `<div class="supply-kv"><span class="k">Temp</span><span class="v">${(s.temp/10).toFixed(1)}°C</span></div>` : ''}
-          ${s.voltage_uv ? `<div class="supply-kv"><span class="k">Voltage</span><span class="v">${(s.voltage_uv/1000).toFixed(0)}mV</span></div>` : ''}
+          ${s.status ? `<div class="supply-kv"><span class="k">状态</span><span class="v">${esc(s.status)}</span></div>` : ''}
+          ${s.capacity ? `<div class="supply-kv"><span class="k">电量</span><span class="v">${s.capacity}%</span></div>` : ''}
+          ${s.temp ? `<div class="supply-kv"><span class="k">温度</span><span class="v">${(s.temp/10).toFixed(1)}°C</span></div>` : ''}
+          ${s.voltage_uv ? `<div class="supply-kv"><span class="k">电压</span><span class="v">${(s.voltage_uv/1000).toFixed(0)}mV</span></div>` : ''}
         </div>
       </div>`;
     }
@@ -340,27 +340,27 @@ function renderChargingInfo() {
 
 // ============ Polling ============
 async function pollAll() {
-  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs(), fetchCharging()]);
+  await Promise.all([fetchEvents(), fetch告警s(), fetchStats(), fetchProcs(), fetchCharging()]);
   const dot = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
   dot.classList.add('online');
-  text.textContent = 'ONLINE';
-  if (currentPage === 'overview') { updateStatsUI(); updateOverviewAlerts(); updateOverviewSummary(); updateOverviewPower(); }
-  if (currentPage === 'alerts') renderAlertList();
+  text.textContent = '在线';
+  if (currentPage === 'overview') { updateStatsUI(); updateOverview告警s(); updateOverviewSummary(); updateOverviewPower(); }
+  if (currentPage === 'alerts') render告警List();
   if (currentPage === 'log') filterHistory();
 }
 
 function startPolling() {
   pollAll();
-  pollTimer = setInterval(pollAll, 5000);
+  poll时间r = setInterval(pollAll, 5000);
 }
 
 // ============ Helpers ============
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function fmtN(n) { return n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
-function fmtTime(ts) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
-function fmtTimestamp(ts) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds())}`; }
-function uidName(uid) { if (uid === 0) return 'root'; if (uid >= 10000 && uid < 20000) return `u${Math.floor(uid/10000)-1}`; if (uid === 2000) return 'shell'; return `uid:${uid}`; }
+function fmt时间(ts) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+function fmt时间stamp(ts) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds())}`; }
+function uid名称(uid) { if (uid === 0) return 'root'; if (uid >= 10000 && uid < 20000) return `u${Math.floor(uid/10000)-1}`; if (uid === 2000) return 'shell'; return `uid:${uid}`; }
 
 // ============ Init ============
 document.addEventListener('DOMContentLoaded', startPolling);
