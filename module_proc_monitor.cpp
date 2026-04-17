@@ -136,6 +136,12 @@ static std::string build_power_json(const std::vector<AppPowerInfo>& apps) {
     cJSON* obj = cJSON_CreateObject();
     cJSON_AddNumberToObject(obj, "system_power_mw", (int)(sys_mw * 10) / 10.0);
     cJSON_AddStringToObject(obj, "battery_status", ch.battery_status);
+    cJSON_AddNumberToObject(obj, "battery_level", ch.battery_level);
+    cJSON_AddNumberToObject(obj, "battery_current_ma", ch.battery_current_ma);
+    cJSON_AddNumberToObject(obj, "battery_voltage_mv", ch.battery_voltage_mv);
+    cJSON_AddNumberToObject(obj, "battery_temp", ch.battery_temp);
+    cJSON_AddStringToObject(obj, "charge_type", ch.charge_type);
+    cJSON_AddStringToObject(obj, "charger_speed", ch.charger_speed);
 
     cJSON* arr = cJSON_CreateArray();
     for (auto& app : apps) {
@@ -363,7 +369,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("2.1.8")
+SKROOT_MODULE_VERSION("2.1.9")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")

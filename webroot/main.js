@@ -97,6 +97,12 @@ async function fetchCharging() {
 let drainData = [];
 let drainSysPower = 0;
 let drainBatStatus = '';
+let drainBatLevel = -1;
+let drainBatCurrent = -1;
+let drainBatVoltage = -1;
+let drainBatTemp = -1;
+let drainChargeType = '';
+let drainChargerSpeed = '';
 let drainMode = 'app'; // 'app' = per-app, 'system' = 整机电池输出
 
 async function fetchDrain() {
@@ -108,11 +114,15 @@ async function fetchDrain() {
       drainData = resp.apps;
       drainSysPower = resp.system_power_mw || 0;
       drainBatStatus = resp.battery_status || '';
+      drainBatLevel = resp.battery_level ?? -1;
+      drainBatCurrent = resp.battery_current_ma ?? -1;
+      drainBatVoltage = resp.battery_voltage_mv ?? -1;
+      drainBatTemp = resp.battery_temp ?? -1;
+      drainChargeType = resp.charge_type || '';
+      drainChargerSpeed = resp.charger_speed || '';
     } else {
       // 旧格式 fallback: 直接是数组
       drainData = resp;
-      drainSysPower = 0;
-      drainBatStatus = '';
     }
     renderDrainInfo();
   } catch (e) {}
@@ -140,15 +150,31 @@ function renderDrainInfo() {
   if (drainMode === 'system') {
     // 整机电池输出模式
     const sysW = (drainSysPower / 1000).toFixed(2);
+    const statusMap = { 'Charging': '充电中', 'Discharging': '放电中', 'Full': '已充满', 'Not charging': '未充电' };
+    const statusCN = statusMap[drainBatStatus] || drainBatStatus || '--';
+    const tempC = drainBatTemp > 0 ? (drainBatTemp / 10).toFixed(1) + '°C' : '--';
+    const curMA = drainBatCurrent != -1 ? drainBatCurrent + 'mA' : '--';
+    const volMV = drainBatVoltage != -1 ? drainBatVoltage + 'mV' : '--';
+    const levelStr = drainBatLevel >= 0 ? drainBatLevel + '%' : '--';
+    const speedMap = { 'super': '超级快充', 'fast': '快充', 'normal': '标准', 'slow': '慢充', 'unknown': '' };
+    const speedStr = speedMap[drainChargerSpeed] || '';
+
     sum.innerHTML = `
       <div class="drain-sum-grid">
-        <div class="drain-sum-item"><span class="drain-sum-val">${sysW}W</span><span class="drain-sum-label">电池功率</span></div>
-        <div class="drain-sum-item"><span class="drain-sum-val">${drainBatStatus || '--'}</span><span class="drain-sum-label">状态</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${levelStr}</span><span class="drain-sum-label">电量</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${statusCN}</span><span class="drain-sum-label">状态</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${tempC}</span><span class="drain-sum-label">温度</span></div>
       </div>`;
     list.innerHTML = `
       <div class="drain-sys-display">
         <div class="drain-sys-value">${sysW}<span class="drain-sys-unit">W</span></div>
         <div class="drain-sys-label">电池实时输出功率</div>
+        <div class="drain-sys-details">
+          <div class="drain-sys-row"><span class="drain-sys-k">电流</span><span class="drain-sys-v">${curMA}</span></div>
+          <div class="drain-sys-row"><span class="drain-sys-k">电压</span><span class="drain-sys-v">${volMV}</span></div>
+          ${drainChargeType ? '<div class="drain-sys-row"><span class="drain-sys-k">充电类型</span><span class="drain-sys-v">' + drainChargeType + '</span></div>' : ''}
+          ${speedStr ? '<div class="drain-sys-row"><span class="drain-sys-k">充电速度</span><span class="drain-sys-v">' + speedStr + '</span></div>' : ''}
+        </div>
         <div class="drain-sys-sub">数据来自 /sys/class/power_supply/battery</div>
       </div>`;
     return;
