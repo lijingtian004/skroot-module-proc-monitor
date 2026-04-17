@@ -587,22 +587,64 @@ static double read_gpu_pct(char* name_out, int name_sz) {
     return -1; // 不可用
 }
 
-// 读取前台 App 的 CPU 和内存
+// 读取前台 App 的 CPU 和内存（直接从 /proc 读取，不依赖 g_power_cache）
 static void get_fg_app_info(char* pkg_out, int pkg_sz, double* cpu_pct, int64_t* mem_mb) {
     pkg_out[0] = 0;
     *cpu_pct = 0;
     *mem_mb = 0;
 
-    // 从功耗缓存中找前台 App
     uid_t fg_uid = find_foreground_uid();
     if (fg_uid == (uid_t)-1) return;
 
-    auto it = g_power_cache.find(fg_uid);
-    if (it != g_power_cache.end()) {
-        strncpy(pkg_out, it->second.package_name, pkg_sz - 1);
-        *cpu_pct = it->second.cpu_usage_pct;
-        *mem_mb = it->second.mem_rss_kb / 1024;
+    // 遍历 /proc 找该 UID 下的进程
+    DIR* dir = opendir("/proc");
+    if (!dir) return;
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != nullptr) {
+        if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
+        pid_t pid = (pid_t)atoi(ent->d_name);
+
+        // 检查 UID
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/%d/status", pid);
+        FILE* f = fopen(path, "r");
+        if (!f) continue;
+        uid_t uid = (uid_t)-1;
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            if (strncmp(line, "Uid:", 4) == 0) {
+                uid = (uid_t)strtoul(line + 4, nullptr, 10);
+                break;
+            }
+        }
+        fclose(f);
+        if (uid != fg_uid) continue;
+
+        // 读 cmdline 作为包名
+        snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+        f = fopen(path, "r");
+        if (f) {
+            char cmd[128] = {};
+            fread(cmd, 1, sizeof(cmd) - 1, f);
+            fclose(f);
+            if (cmd[0] && !pkg_out[0]) strncpy(pkg_out, cmd, pkg_sz - 1);
+        }
+
+        // 读内存
+        snprintf(path, sizeof(path), "/proc/%d/status", pid);
+        f = fopen(path, "r");
+        if (f) {
+            while (fgets(line, sizeof(line), f)) {
+                if (strncmp(line, "VmRSS:", 6) == 0) {
+                    *mem_mb += strtoll(line + 6, nullptr, 10) / 1024;
+                    break;
+                }
+            }
+            fclose(f);
+        }
+        break; // 只取第一个进程就够了
     }
+    closedir(dir);
 }
 
 OverlayData overlay_get_data() {
