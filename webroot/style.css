@@ -317,3 +317,13 @@ body {
 }
 .detail-label { color: var(--text-dim); }
 .detail-value { font-weight: 500; text-align: right; max-width: 60%; word-break: break-all; }
+
+/* 进程列表 */
+.proc-count {
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+}
+.proc-item { border-left: 3px solid var(--cyan); }
