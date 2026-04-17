@@ -778,19 +778,25 @@ static void load_third_party_uids() {
 
 // 从 sysfs 读取实际电池功率（mW）
 static double read_battery_power_mw() {
-    int cur_ua = 0, vol_uv = 0;
-    // 读电流
+    double cur_val = 0, vol_val = 0;
+    // 读电流（可能是 μA 或 mA，取绝对值）
     FILE* f = fopen("/sys/class/power_supply/battery/current_now", "r");
-    if (f) { fscanf(f, "%d", &cur_ua); fclose(f); }
-    // 读电压
+    if (f) { fscanf(f, "%lf", &cur_val); fclose(f); }
+    cur_val = cur_val < 0 ? -cur_val : cur_val;  // 放电时为负，取绝对值
+    // 读电压（可能是 μV 或 mV）
     f = fopen("/sys/class/power_supply/battery/voltage_now", "r");
-    if (f) { fscanf(f, "%d", &vol_uv); fclose(f); }
-    if (cur_ua > 0 && vol_uv > 0) {
-        // P = I * V = (cur_ua / 1e6) A * (vol_uv / 1e6) V = cur_ua * vol_uv / 1e12 W
-        // mW = cur_ua * vol_uv / 1e9
-        return (double)cur_ua * (double)vol_uv / 1e9;
-    }
-    return 0;
+    if (f) { fscanf(f, "%lf", &vol_val); fclose(f); }
+
+    if (cur_val <= 0 || vol_val <= 0) return 0;
+
+    // 自动判断单位：
+    // current_now: >100000 → μA，否则 → mA
+    // voltage_now: >100000 → μV，否则 → mV
+    double cur_ma = (cur_val > 100000) ? (cur_val / 1000.0) : cur_val;
+    double vol_mv = (vol_val > 100000) ? (vol_val / 1000.0) : vol_val;
+
+    // P(mW) = I(mA) × V(mV) / 1000
+    return cur_ma * vol_mv / 1000.0;
 }
 
 // 包名 → 中文名 映射
