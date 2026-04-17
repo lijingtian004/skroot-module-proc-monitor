@@ -17,6 +17,7 @@
 #include <atomic>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
 
 #include "proc_scanner.h"
@@ -492,12 +493,15 @@ struct UidSample {
 static std::unordered_map<uid_t, UidSample> g_prev_samples;
 static std::unordered_map<uid_t, AppPowerInfo> g_power_cache;
 static double g_last_sample_time = 0;
-static double g_prev_total_cpu_sec = 0;  // 上次总 CPU 时间（从 /proc/stat）
+static double g_prev_total_cpu_sec = 0;
+static double g_battery_power_mw = 0;  // 实际电池功率 mW（从 sysfs 读取）
 
 // 自定义标签映射（从 labels.conf 加载）
 static std::unordered_map<std::string, std::string> g_custom_labels;
 // UID → 包名 映射（从 packages.list 加载）
 static std::unordered_map<uid_t, std::string> g_uid_pkg_map;
+// 第三方应用 UID 集合（从 pm list packages -3 获取）
+static std::unordered_set<uid_t> g_third_party_uids;
 
 static void load_custom_labels(const char* module_dir) {
     g_custom_labels.clear();
@@ -747,6 +751,48 @@ static void load_uid_pkg_map() {
     }
 }
 
+// 用 pm list packages -3 获取第三方应用 UID
+static void load_third_party_uids() {
+    g_third_party_uids.clear();
+    // 先拿第三方包名
+    std::unordered_set<std::string> tpkgs;
+    FILE* f = popen("pm list packages -3 2>/dev/null", "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            char* pkg = line;
+            if (strncmp(pkg, "package:", 8) == 0) pkg += 8;
+            char* nl = strchr(pkg, '\n');
+            if (nl) *nl = 0;
+            tpkgs.insert(pkg);
+        }
+        pclose(f);
+    }
+    // 匹配 UID
+    for (auto& [uid, pkg] : g_uid_pkg_map) {
+        if (tpkgs.find(pkg) != tpkgs.end()) {
+            g_third_party_uids.insert(uid);
+        }
+    }
+}
+
+// 从 sysfs 读取实际电池功率（mW）
+static double read_battery_power_mw() {
+    int cur_ua = 0, vol_uv = 0;
+    // 读电流
+    FILE* f = fopen("/sys/class/power_supply/battery/current_now", "r");
+    if (f) { fscanf(f, "%d", &cur_ua); fclose(f); }
+    // 读电压
+    f = fopen("/sys/class/power_supply/battery/voltage_now", "r");
+    if (f) { fscanf(f, "%d", &vol_uv); fclose(f); }
+    if (cur_ua > 0 && vol_uv > 0) {
+        // P = I * V = (cur_ua / 1e6) A * (vol_uv / 1e6) V = cur_ua * vol_uv / 1e12 W
+        // mW = cur_ua * vol_uv / 1e9
+        return (double)cur_ua * (double)vol_uv / 1e9;
+    }
+    return 0;
+}
+
 // 包名 → 中文名 映射
 static const char* pkg_to_label(const char* pkg) {
     struct { const char* pkg; const char* name; } MAP[] = {
@@ -900,13 +946,12 @@ void power_tracker_init() {
     g_prev_total_cpu_sec = 0;
 }
 
-// 带 module_dir 的初始化（用于加载 labels.conf）
+// 带 module_dir 的初始化
 void power_tracker_init_with_dir(const char* module_dir) {
     power_tracker_init();
     load_custom_labels(module_dir);
     load_uid_pkg_map();
-    // 注意：自动提取 APK 标签已移除（会导致段错误）
-    // 用户可通过 labels.conf 手动添加映射
+    load_third_party_uids();
 }
 
 void power_tracker_sample() {
@@ -945,9 +990,9 @@ void power_tracker_sample() {
         fclose(f);
         if (uid == (uid_t)-1) continue;
 
-        // 只追踪已安装应用（在 packages.list 里的 UID）
+        // 只追踪第三方应用（pm list packages -3 的结果）
         if (uid < 10000) continue;
-        if (g_uid_pkg_map.find(uid) == g_uid_pkg_map.end()) continue;
+        if (g_third_party_uids.find(uid) == g_third_party_uids.end()) continue;
 
         double cpu = read_proc_cpu_time(pid);
         if (cpu < 0) continue;
@@ -1045,13 +1090,17 @@ void power_tracker_sample() {
         }
         strncpy(info.label, label, sizeof(info.label) - 1);
 
-        // 功耗评分改为 估计耗电功率 (mW)
-        // 估算: CPU 100% ≈ 500mW/core, 内存 1GB ≈ 100mW, IO 100MB/s ≈ 200mW
-        double cpu_mw = info.cpu_usage_pct / 100.0 * 500.0 * nprocs;
-        double mem_mw = cur.mem_rss_kb / 1024.0 / 1024.0 * 100.0;  // KB → GB
-        double io_rate = g_last_sample_time > 0 ? (cur.io_read + cur.io_write) / dt : 0;
-        double io_mw = io_rate / 1024.0 / 1024.0 / 100.0 * 200.0;
-        info.power_score = cpu_mw + mem_mw + io_mw;
+        // 读取实际电池功率（mW），按 CPU 占比分配
+        g_battery_power_mw = read_battery_power_mw();
+        if (g_battery_power_mw > 0 && total_cpu_delta > 0 && g_last_sample_time > 0) {
+            // 实际总功耗 × 该应用 CPU 占比
+            info.power_score = g_battery_power_mw * (cpu_deltas[uid] / total_cpu_delta * nprocs);
+        } else {
+            // 兜底：无电池信息时用粗略估算
+            double cpu_mw = info.cpu_usage_pct / 100.0 * 500.0 * nprocs;
+            double mem_mw = cur.mem_rss_kb / 1024.0 / 1024.0 * 100.0;
+            info.power_score = cpu_mw + mem_mw;
+        }
 
         g_power_cache[uid] = info;
     }
