@@ -210,10 +210,10 @@ function formatTimestamp(ts) {
 
 function typeIcon(type) {
   switch (type) {
-    case 0: return '🟢';  // EXEC
-    case 1: return '⚪';  // EXIT
-    case 2: return '🔴';  // ALERT
-    default: return '❓';
+    case 0: return '▶';
+    case 1: return '■';
+    case 2: return '⚠';
+    default: return '?';
   }
 }
 
@@ -250,12 +250,13 @@ function renderEventItem(ev, isNew) {
   div.onclick = () => showDetail(ev);
 
   const icon = typeIcon(ev.type);
+  const iconClass = ev.type === 0 ? 'exec' : ev.type === 1 ? 'exit' : 'alert';
   const time = formatTime(ev.ts);
-  const reason = ev.reason ? `<div class="event-reason">⚠️ ${escHtml(ev.reason)}</div>` : '';
+  const reason = ev.reason ? `<div class="event-reason">⚠ ${escHtml(ev.reason)}</div>` : '';
   const cmdline = ev.cmdline ? escHtml(ev.cmdline.substring(0, 80)) : '';
 
   div.innerHTML = `
-    <span class="event-icon">${icon}</span>
+    <span class="event-icon ${iconClass}">${icon}</span>
     <div class="event-body">
       <div class="event-main">
         <span class="comm">${escHtml(ev.comm)}</span>
