@@ -487,13 +487,78 @@ struct UidSample {
     int     proc_count;
     char    comm[64];       // 最活跃进程名
     char    cmdline[128];   // 命令行（取包名用）
-    int64_t cmdline_inode;  // cmdline 的 inode 用于去重
 };
 
 static std::unordered_map<uid_t, UidSample> g_prev_samples;
 static std::unordered_map<uid_t, AppPowerInfo> g_power_cache;
 static double g_last_sample_time = 0;
-static double g_total_cpu_delta = 0;  // 总 CPU 增量（用于算百分比）
+static double g_prev_total_cpu_sec = 0;  // 上次总 CPU 时间（从 /proc/stat）
+
+// 包名 → 中文名 映射
+static const char* pkg_to_label(const char* pkg) {
+    struct { const char* pkg; const char* name; } MAP[] = {
+        {"com.tencent.mm",          "微信"},
+        {"com.tencent.mobileqq",    "QQ"},
+        {"com.tencent.tim",         "TIM"},
+        {"com.ss.android.ugc.aweme","抖音"},
+        {"com.zhiliaoapp.musically", "TikTok"},
+        {"com.xiaomi.misuper",      "小米社区"},
+        {"com.xiaomi.mirecycle",    "小米商城"},
+        {"com.sina.weibo",          "微博"},
+        {"com.taobao.taobao",       "淘宝"},
+        {"com.tmall.wireless",      "天猫"},
+        {"com.jingdong.app",        "京东"},
+        {"com.eg.android.AlipayGphone", "支付宝"},
+        {"com.baidu.searchbox",     "百度"},
+        {"com.UCMobile",            "UC浏览器"},
+        {"com.quark.browser",       "夸克"},
+        {"com.android.chrome",      "Chrome"},
+        {"com.android.browser",     "浏览器"},
+        {"com.google.android.youtube", "YouTube"},
+        {"com.spotify.music",       "Spotify"},
+        {"com.netease.cloudmusic",  "网易云音乐"},
+        {"com.kugou.android",       "酷狗音乐"},
+        {"com.tencent.qqmusic",     "QQ音乐"},
+        {"tv.danmaku.bili",         "哔哩哔哩"},
+        {"com.youku.phone",         "优酷"},
+        {"com.iqiyi.player",        "爱奇艺"},
+        {"com.ss.android.article.news", "今日头条"},
+        {"com.tencent.news",        "腾讯新闻"},
+        {"com.sohu.newsclient",     "搜狐新闻"},
+        {"com.duokan.reader",       "多看阅读"},
+        {"com.chaozh.iReader",      "掌阅"},
+        {"com.tencent.weread",      "微信读书"},
+        {"com.tencent.qqpimsecure", "腾讯手机管家"},
+        {"com.miui.securitycenter", "手机管家"},
+        {"com.android.deskclock",   "时钟"},
+        {"com.android.calendar",    "日历"},
+        {"com.android.camera",      "相机"},
+        {"com.miui.gallery",        "相册"},
+        {"com.android.mms",         "短信"},
+        {"com.android.contacts",    "联系人"},
+        {"com.android.settings",    "设置"},
+        {"com.android.phone",       "电话"},
+        {"com.android.vending",     "Google Play"},
+        {"com.xiaomi.market",       "应用商店"},
+        {"com.xiaomi.mipicks",      "小米商城"},
+        {"com.mi.android.globalFileexplorer", "文件管理"},
+        {"com.android.fileexplorer", "文件管理"},
+        {"com.miui.notes",          "笔记"},
+        {"com.xiaomi.scanner",      "扫一扫"},
+        {"com.xiaomi.voiceassistant", "小爱同学"},
+        {"com.android.soundrecorder", "录音机"},
+        {"com.android.email",       "邮箱"},
+        {"com.microsoft.office.outlook", "Outlook"},
+        {"com.google.android.gm",   "Gmail"},
+        {"com.termux",              "Termux"},
+        {"com.topjohnwu.magisk",    "Magisk"},
+        {nullptr, nullptr}
+    };
+    for (int i = 0; MAP[i].pkg; i++) {
+        if (strcmp(pkg, MAP[i].pkg) == 0) return MAP[i].name;
+    }
+    return nullptr;
+}
 
 // 从 /proc/<pid>/stat 读 CPU 时间（user + system，单位秒）
 static double read_proc_cpu_time(pid_t pid) {
@@ -523,6 +588,22 @@ static double read_proc_cpu_time(pid_t pid) {
     long clk = sysconf(_SC_CLK_TCK);
     if (clk <= 0) clk = 100;
     return (double)(utime + stime) / (double)clk;
+}
+
+// 从 /proc/stat 读总 CPU 时间（所有核心，单位秒）
+static double read_total_cpu_sec() {
+    FILE* f = fopen("/proc/stat", "r");
+    if (!f) return 0;
+    char line[256];
+    if (!fgets(line, sizeof(line), f)) { fclose(f); return 0; }
+    fclose(f);
+    // 格式: cpu  user nice system idle iowait irq softirq steal
+    unsigned long user, nice, sys, idle, iowait, irq, softirq, steal;
+    if (sscanf(line, "cpu %lu %lu %lu %lu %lu %lu %lu %lu",
+               &user, &nice, &sys, &idle, &iowait, &irq, &softirq, &steal) < 8) return 0;
+    long clk = sysconf(_SC_CLK_TCK);
+    if (clk <= 0) clk = 100;
+    return (double)(user + nice + sys + idle + iowait + irq + softirq + steal) / (double)clk;
 }
 
 // 从 /proc/<pid>/status 读 RSS
@@ -563,7 +644,7 @@ void power_tracker_init() {
     g_prev_samples.clear();
     g_power_cache.clear();
     g_last_sample_time = 0;
-    g_total_cpu_delta = 0;
+    g_prev_total_cpu_sec = 0;
 }
 
 void power_tracker_sample() {
@@ -571,9 +652,13 @@ void power_tracker_sample() {
     double dt = g_last_sample_time > 0 ? (now - g_last_sample_time) : 1.0;
     if (dt < 0.5) return;  // 至少间隔 0.5 秒
 
+    // 读总 CPU 时间（用于算绝对占用率）
+    double total_cpu_now = read_total_cpu_sec();
+    double total_cpu_delta = total_cpu_now - g_prev_total_cpu_sec;
+    if (total_cpu_delta < 0) total_cpu_delta = 0;
+
     // 收集当前快照
     std::unordered_map<uid_t, UidSample> cur_samples;
-    double total_cpu = 0;
 
     DIR* dir = opendir("/proc");
     if (!dir) return;
@@ -598,8 +683,7 @@ void power_tracker_sample() {
         fclose(f);
         if (uid == (uid_t)-1) continue;
 
-        // 跳过 root (0) 和 system (1000) — 它们不是用户应用
-        // 但保留 1000+ 的应用 UID
+        // 只追踪用户应用 UID >= 10000
         if (uid < 10000) continue;
 
         double cpu = read_proc_cpu_time(pid);
@@ -614,7 +698,6 @@ void power_tracker_sample() {
         snprintf(path, sizeof(path), "/proc/%d/comm", pid);
         f = fopen(path, "r");
         if (f) { fgets(comm, sizeof(comm), f); fclose(f); }
-        // trim newline
         char* nl = strchr(comm, '\n');
         if (nl) *nl = 0;
 
@@ -631,7 +714,6 @@ void power_tracker_sample() {
         s.io_read += io_r;
         s.io_write += io_w;
         s.proc_count++;
-        // 用最长 cmdline 作为标识（通常是包名）
         if (strlen(cmdline) > strlen(s.cmdline))
             strncpy(s.cmdline, cmdline, sizeof(s.cmdline) - 1);
         if (strlen(comm) > 0)
@@ -639,60 +721,64 @@ void power_tracker_sample() {
     }
     closedir(dir);
 
-    // 计算增量
-    double total_delta = 0;
-    std::unordered_map<uid_t, double> deltas;
-
+    // 计算每个 UID 的 CPU 增量
+    std::unordered_map<uid_t, double> cpu_deltas;
     for (auto& [uid, cur] : cur_samples) {
-        double prev_cpu = 0;
+        double prev = 0;
         auto it = g_prev_samples.find(uid);
-        if (it != g_prev_samples.end())
-            prev_cpu = it->second.cpu_time_sec;
-
-        double delta = cur.cpu_time_sec - prev_cpu;
-        if (delta < 0) delta = 0;  // 进程重建
-        deltas[uid] = delta;
-        total_delta += delta;
+        if (it != g_prev_samples.end()) prev = it->second.cpu_time_sec;
+        double delta = cur.cpu_time_sec - prev;
+        if (delta < 0) delta = 0;
+        cpu_deltas[uid] = delta;
     }
 
-    g_total_cpu_delta = total_delta;
-    g_last_sample_time = now;
-
     // 更新功耗缓存
+    int nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+    if (nprocs <= 0) nprocs = 1;
+
     g_power_cache.clear();
     for (auto& [uid, cur] : cur_samples) {
         AppPowerInfo info = {};
         info.uid = uid;
+
+        // 绝对 CPU 占用率 = delta / total_cpu_delta * nprocs * 100
+        if (total_cpu_delta > 0 && g_last_sample_time > 0)
+            info.cpu_usage_pct = cpu_deltas[uid] / total_cpu_delta * nprocs * 100.0;
+        else
+            info.cpu_usage_pct = 0;
+        if (info.cpu_usage_pct > 100 * nprocs) info.cpu_usage_pct = 100 * nprocs;
+
         info.cpu_time_sec = cur.cpu_time_sec;
-        info.cpu_usage_pct = (total_delta > 0) ? (deltas[uid] / total_delta * 100.0) : 0;
         info.mem_rss_kb = cur.mem_rss_kb;
         info.io_read_bytes = cur.io_read;
         info.io_write_bytes = cur.io_write;
         info.proc_count = cur.proc_count;
 
-        // 提取包名：cmdline 通常是 /system/bin/app_process64 com.xxx.xxx
+        // 提取包名
         const char* pkg = cur.cmdline;
-        // 找最后一个空格后的部分
         const char* sp = strrchr(cur.cmdline, ' ');
         if (sp && *(sp + 1)) pkg = sp + 1;
         strncpy(info.package_name, pkg, sizeof(info.package_name) - 1);
-        strncpy(info.label, cur.comm, sizeof(info.label) - 1);
 
-        // 功耗评分 = CPU权重60% + 内存权重20% + IO权重20%
-        // CPU: 占用率直接用
-        // 内存: 以 500MB 为基准
-        // IO: 以 100MB/s 为基准
-        double mem_score = (cur.mem_rss_kb / 1024.0 / 500.0) * 100.0;
-        double io_score = ((cur.io_read + cur.io_write) / 1024.0 / 1024.0 / 100.0 / dt) * 100.0;
-        info.power_score = info.cpu_usage_pct * 0.6 +
-                           std::min(mem_score, 100.0) * 0.2 +
-                           std::min(io_score, 100.0) * 0.2;
-        if (info.power_score > 100) info.power_score = 100;
+        // 显示名：优先用中文映射，否则用 comm
+        const char* label = pkg_to_label(pkg);
+        if (!label) label = cur.comm;
+        strncpy(info.label, label, sizeof(info.label) - 1);
+
+        // 功耗评分改为 估计耗电功率 (mW)
+        // 估算: CPU 100% ≈ 500mW/core, 内存 1GB ≈ 100mW, IO 100MB/s ≈ 200mW
+        double cpu_mw = info.cpu_usage_pct / 100.0 * 500.0 * nprocs;
+        double mem_mw = cur.mem_rss_kb / 1024.0 / 1024.0 * 100.0;  // KB → GB
+        double io_rate = g_last_sample_time > 0 ? (cur.io_read + cur.io_write) / dt : 0;
+        double io_mw = io_rate / 1024.0 / 1024.0 / 100.0 * 200.0;
+        info.power_score = cpu_mw + mem_mw + io_mw;
 
         g_power_cache[uid] = info;
     }
 
     g_prev_samples = std::move(cur_samples);
+    g_prev_total_cpu_sec = total_cpu_now;
+    g_last_sample_time = now;
 }
 
 std::vector<AppPowerInfo> power_tracker_get_top(int n) {

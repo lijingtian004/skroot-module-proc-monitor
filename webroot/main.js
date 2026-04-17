@@ -123,22 +123,19 @@ function renderDrainInfo() {
   // 列表
   let html = '';
   drainData.forEach((a, i) => {
-    const bar = Math.min(a.score, 100);
-    const color = a.score > 50 ? 'var(--red)' : a.score > 20 ? 'var(--amber)' : 'var(--green)';
-    const name = esc(a.package || a.label || `UID ${a.uid}`);
+    const color = a.score > 300 ? 'var(--red)' : a.score > 100 ? 'var(--amber)' : 'var(--green)';
+    const name = esc(a.label || a.package || `UID ${a.uid}`);
     html += `<div class="drain-row" onclick="showDrainDetail(${i})">
       <div class="drain-rank">${i + 1}</div>
       <div class="drain-info">
         <div class="drain-name">${name}</div>
         <div class="drain-stats">
-          <span>CPU ${a.cpu_pct}%</span>
+          <span>CPU ${a.cpu_pct.toFixed(1)}%</span>
           <span>内存 ${a.mem_mb}M</span>
-          <span>IO ${a.io_mb}M</span>
           <span>${a.procs}进程</span>
         </div>
-        <div class="drain-bar-track"><div class="drain-bar-fill" style="width:${bar}%;background:${color}"></div></div>
       </div>
-      <div class="drain-score" style="color:${color}">${a.score.toFixed(0)}</div>
+      <div class="drain-score" style="color:${color}">${a.score.toFixed(0)}<span style="font-size:9px">mW</span></div>
     </div>`;
   });
   list.innerHTML = html;
@@ -150,17 +147,17 @@ function showDrainDetail(i) {
   const overlay = document.getElementById('modalOverlay');
   const body = document.getElementById('modalBody');
   const title = document.getElementById('modalTitle');
-  title.textContent = a.package || a.label || `UID ${a.uid}`;
+  title.textContent = a.label || a.package || `UID ${a.uid}`;
   body.innerHTML = `
     <div class="detail-grid">
       <div class="detail-row"><span class="detail-label">UID</span><span class="detail-value">${a.uid}</span></div>
       <div class="detail-row"><span class="detail-label">包名</span><span class="detail-value">${esc(a.package || '--')}</span></div>
-      <div class="detail-row"><span class="detail-label">进程名</span><span class="detail-value">${esc(a.label)}</span></div>
-      <div class="detail-row"><span class="detail-label">CPU 占用</span><span class="detail-value">${a.cpu_pct}%</span></div>
+      <div class="detail-row"><span class="detail-label">应用名</span><span class="detail-value">${esc(a.label)}</span></div>
+      <div class="detail-row"><span class="detail-label">CPU 占用</span><span class="detail-value">${a.cpu_pct.toFixed(1)}%</span></div>
       <div class="detail-row"><span class="detail-label">内存占用</span><span class="detail-value">${a.mem_mb} MB</span></div>
       <div class="detail-row"><span class="detail-label">IO 总量</span><span class="detail-value">${a.io_mb} MB</span></div>
       <div class="detail-row"><span class="detail-label">进程数</span><span class="detail-value">${a.procs}</span></div>
-      <div class="detail-row"><span class="detail-label">功耗评分</span><span class="detail-value">${a.score.toFixed(1)}</span></div>
+      <div class="detail-row"><span class="detail-label">估计耗电</span><span class="detail-value">${a.score.toFixed(0)} mW</span></div>
     </div>`;
   overlay.classList.add('show');
 }
