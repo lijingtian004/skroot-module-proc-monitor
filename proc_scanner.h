@@ -124,8 +124,18 @@ private:
 // 全局事件缓冲区
 extern EventBuffer g_event_buf;
 
+// 当前进程信息（用于 /api/procs）
+struct ProcInfo {
+    pid_t   pid;
+    pid_t   ppid;
+    uid_t   uid;
+    char    comm[64];
+    char    cmdline[256];
+};
+
 // 进程扫描器接口
 int  proc_scanner_init(const char* module_private_dir);
 void proc_scanner_start();
 void proc_scanner_stop();
 void proc_scanner_scan_once();   // 手动触发一次扫描
+std::vector<ProcInfo> proc_scanner_get_all_procs();  // 获取当前所有进程
