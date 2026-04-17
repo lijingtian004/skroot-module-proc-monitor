@@ -3,6 +3,7 @@
 // ============ 全局状态 ============
 let allEvents = [];
 let allAlerts = [];
+let allProcs = [];  // 当前进程列表
 let stats = { total: 0, alerts: 0, exec: 0, exit: 0 };
 let currentTab = 'live';
 let pollTimer = null;
@@ -50,6 +51,22 @@ async function fetchStats() {
       stats.total  = s.total_events  || 0;
       stats.alerts = s.total_alerts  || 0;
       updateStatsUI();
+    } catch (e) {}
+  }
+}
+
+async function fetchProcs() {
+  const raw = await api('/api/procs');
+  if (raw) {
+    try {
+      allProcs = JSON.parse(raw);
+      // 更新角标
+      const badge = document.getElementById('procBadge');
+      if (badge) badge.textContent = allProcs.length;
+      // 更新计数
+      const count = document.getElementById('procCount');
+      if (count) count.textContent = `共 ${allProcs.length} 个进程`;
+      if (currentTab === 'procs') filterProcs();
     } catch (e) {}
   }
 }
@@ -235,6 +252,93 @@ function filterHistory() {
   renderHistoryList(filtered);
 }
 
+// ============ 进程列表 ============
+
+function renderProcItem(p) {
+  const div = document.createElement('div');
+  div.className = 'event-item proc-item';
+  div.onclick = () => showProcDetail(p);
+
+  const cmdline = p.cmdline ? escHtml(p.cmdline.substring(0, 80)) : '';
+
+  div.innerHTML = `
+    <span class="event-icon">📌</span>
+    <div class="event-body">
+      <div class="event-main">
+        <span class="comm">${escHtml(p.comm)}</span>
+        <span class="pid">PID ${p.pid}</span>
+      </div>
+      <div class="event-sub">${cmdline || `PPID ${p.ppid} · ${uidToName(p.uid)}`}</div>
+    </div>
+  `;
+  return div;
+}
+
+function renderProcsList(procs) {
+  const list = document.getElementById('procList');
+  list.innerHTML = '';
+
+  if (procs.length === 0) {
+    list.innerHTML = '<div class="loading">无进程数据</div>';
+    return;
+  }
+
+  const display = procs.slice(0, 500); // 最多显示 500 条
+  for (const p of display) {
+    list.appendChild(renderProcItem(p));
+  }
+}
+
+function filterProcs() {
+  const keyword = document.getElementById('procSearchInput').value.toLowerCase();
+
+  let filtered = allProcs;
+
+  if (keyword) {
+    filtered = filtered.filter(p =>
+      p.comm.toLowerCase().includes(keyword) ||
+      String(p.pid).includes(keyword) ||
+      (p.cmdline && p.cmdline.toLowerCase().includes(keyword))
+    );
+  }
+
+  // 更新计数
+  const count = document.getElementById('procCount');
+  if (count) {
+    count.textContent = keyword
+      ? `匹配 ${filtered.length} / ${allProcs.length} 个进程`
+      : `共 ${allProcs.length} 个进程`;
+  }
+
+  renderProcsList(filtered);
+}
+
+function showProcDetail(p) {
+  const overlay = document.getElementById('modalOverlay');
+  const body = document.getElementById('modalBody');
+  const title = document.getElementById('modalTitle');
+
+  title.textContent = `📌 ${p.comm} — 进程详情`;
+
+  const rows = [
+    ['PID', p.pid],
+    ['PPID', p.ppid],
+    ['UID', `${p.uid} (${uidToName(p.uid)})`],
+    ['进程名', p.comm],
+  ];
+
+  if (p.cmdline) rows.push(['命令行', p.cmdline]);
+
+  body.innerHTML = rows.map(([label, value]) =>
+    `<div class="detail-row">
+      <span class="detail-label">${escHtml(label)}</span>
+      <span class="detail-value">${escHtml(String(value))}</span>
+    </div>`
+  ).join('');
+
+  overlay.classList.add('show');
+}
+
 // ============ 事件详情浮层 ============
 
 function showDetail(ev) {
@@ -284,12 +388,13 @@ function switchTab(tab) {
   // 切换时刷新数据
   if (tab === 'alerts') renderAlertList();
   if (tab === 'history') filterHistory();
+  if (tab === 'procs') { fetchProcs(); filterProcs(); }
 }
 
 // ============ 轮询 ============
 
 async function pollAll() {
-  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats()]);
+  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs()]);
 
   // 更新状态指示
   const dot = document.getElementById('statusDot');
@@ -301,6 +406,7 @@ async function pollAll() {
   if (currentTab === 'live')    renderLiveList();
   if (currentTab === 'alerts')  renderAlertList();
   if (currentTab === 'history') filterHistory();
+  if (currentTab === 'procs')   filterProcs();
 }
 
 function startPolling() {
