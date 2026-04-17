@@ -23,38 +23,38 @@
     <!-- 统计卡片 -->
     <div class="stats-bar">
       <div class="stat-card">
-        <div class="stat-num cyan" id="statTotal">0</div>
-        <div class="stat-label">总事件</div>
+        <div class="stat-num amber" id="statTotal">0</div>
+        <div class="stat-label">Events</div>
       </div>
       <div class="stat-card">
         <div class="stat-num red" id="statAlerts">0</div>
-        <div class="stat-label">告警</div>
+        <div class="stat-label">Alerts</div>
       </div>
       <div class="stat-card">
         <div class="stat-num green" id="statExec">0</div>
-        <div class="stat-label">新进程</div>
+        <div class="stat-label">Created</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num orange" id="statExit">0</div>
-        <div class="stat-label">退出</div>
+        <div class="stat-num blue" id="statExit">0</div>
+        <div class="stat-label">Exited</div>
       </div>
     </div>
 
     <!-- Tab 切换 -->
     <div class="tab-bar">
       <button class="tab active" data-tab="procs" onclick="switchTab('procs')">
-        <span class="tab-icon">📊</span> 进程
+        <span class="tab-icon">▪</span> Procs
         <span class="badge" id="procBadge">0</span>
       </button>
       <button class="tab" data-tab="alerts" onclick="switchTab('alerts')">
-        <span class="tab-icon">🚨</span> 告警
+        <span class="tab-icon">▪</span> Alerts
         <span class="badge" id="alertBadge" style="display:none">0</span>
       </button>
       <button class="tab" data-tab="history" onclick="switchTab('history')">
-        <span class="tab-icon">📋</span> 历史
+        <span class="tab-icon">▪</span> Log
       </button>
       <button class="tab" data-tab="charging" onclick="switchTab('charging')">
-        <span class="tab-icon">⚡</span> 充电
+        <span class="tab-icon">▪</span> Power
       </button>
     </div>
 
