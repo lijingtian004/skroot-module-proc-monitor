@@ -126,6 +126,17 @@ static std::string build_charging_json(const ChargingInfo& ch) {
 }
 
 static std::string build_power_json(const std::vector<AppPowerInfo>& apps) {
+    // 读取实际电池功率
+    ChargingInfo ch = charging_get_info();
+    double sys_mw = 0;
+    if (ch.battery_current_ma != -1 && ch.battery_voltage_mv != -1) {
+        sys_mw = (double)abs(ch.battery_current_ma) * (double)ch.battery_voltage_mv / 1000.0;
+    }
+
+    cJSON* obj = cJSON_CreateObject();
+    cJSON_AddNumberToObject(obj, "system_power_mw", (int)(sys_mw * 10) / 10.0);
+    cJSON_AddStringToObject(obj, "battery_status", ch.battery_status);
+
     cJSON* arr = cJSON_CreateArray();
     for (auto& app : apps) {
         cJSON* o = cJSON_CreateObject();
@@ -140,10 +151,12 @@ static std::string build_power_json(const std::vector<AppPowerInfo>& apps) {
         cJSON_AddNumberToObject(o, "power_mw", (int)(app.power_mw * 10) / 10.0);
         cJSON_AddItemToArray(arr, o);
     }
-    char* raw = cJSON_PrintUnformatted(arr);
+    cJSON_AddItemToObject(obj, "apps", arr);
+
+    char* raw = cJSON_PrintUnformatted(obj);
     std::string result(raw);
     cJSON_free(raw);
-    cJSON_Delete(arr);
+    cJSON_Delete(obj);
     return result;
 }
 
@@ -348,7 +361,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("2.1.6")
+SKROOT_MODULE_VERSION("2.1.7")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")

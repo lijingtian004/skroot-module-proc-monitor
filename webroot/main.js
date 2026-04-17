@@ -95,17 +95,66 @@ async function fetchCharging() {
 }
 
 let drainData = [];
+let drainSysPower = 0;
+let drainBatStatus = '';
+let drainMode = 'app'; // 'app' = per-app, 'system' = 整机电池输出
+
 async function fetchDrain() {
   const raw = await api('/api/power-drain', '20');
   if (raw) try {
-    drainData = JSON.parse(raw);
+    const resp = JSON.parse(raw);
+    // 兼容新格式: { system_power_mw, battery_status, apps: [...] }
+    if (resp.apps) {
+      drainData = resp.apps;
+      drainSysPower = resp.system_power_mw || 0;
+      drainBatStatus = resp.battery_status || '';
+    } else {
+      // 旧格式 fallback: 直接是数组
+      drainData = resp;
+      drainSysPower = 0;
+      drainBatStatus = '';
+    }
     renderDrainInfo();
   } catch (e) {}
+}
+
+function toggleDrainMode() {
+  drainMode = drainMode === 'app' ? 'system' : 'app';
+  renderDrainInfo();
 }
 
 function renderDrainInfo() {
   const sum = document.getElementById('drainSummary');
   const list = document.getElementById('drainList');
+  const toggle = document.getElementById('drainToggle');
+
+  // 更新开关按钮文字
+  if (toggle) {
+    toggle.textContent = drainMode === 'app' ? '按应用估算' : '整机电池输出';
+    toggle.className = drainMode === 'app' ? 'drain-toggle mode-app' : 'drain-toggle mode-sys';
+  }
+  // 显示/隐藏提示文字
+  const note = document.getElementById('drainNote');
+  if (note) note.style.display = drainMode === 'app' ? '' : 'none';
+
+  if (drainMode === 'system') {
+    // 整机电池输出模式
+    const sysW = (drainSysPower / 1000).toFixed(2);
+    sum.innerHTML = `
+      <div class="drain-sum-grid">
+        <div class="drain-sum-item"><span class="drain-sum-val">${sysW}W</span><span class="drain-sum-label">电池功率</span></div>
+        <div class="drain-sum-item"><span class="drain-sum-val">${drainBatStatus || '--'}</span><span class="drain-sum-label">状态</span></div>
+      </div>`;
+    list.innerHTML = `
+      <div class="drain-sys-display">
+        <div class="drain-sys-value">${sysW}<span class="drain-sys-unit">W</span></div>
+        <div class="drain-sys-label">电池实时输出功率</div>
+        <div class="drain-sys-sub">数据来自 /sys/class/power_supply/battery</div>
+      </div>`;
+    return;
+  }
+
+  // 按应用估算模式
   if (!drainData.length) {
     list.innerHTML = '<div class="empty-hint">暂无数据，等待首次采样...</div>';
     return;

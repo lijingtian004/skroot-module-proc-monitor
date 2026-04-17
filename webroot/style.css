@@ -597,6 +597,21 @@ body {
 .drain-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
 .drain-score { font-size: 16px; font-weight: 700; flex-shrink: 0; }
 .drain-note { font-size: 10px; color: var(--text-3); text-align: center; margin-top: 12px; padding: 8px; line-height: 1.4; }
+.drain-toggle {
+  font-size: 11px; padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border);
+  cursor: pointer; font-weight: 600; vertical-align: middle; margin-left: 8px;
+  transition: all 0.2s;
+}
+.drain-toggle.mode-app { background: var(--accent); color: #fff; border-color: var(--accent); }
+.drain-toggle.mode-sys { background: var(--amber); color: #000; border-color: var(--amber); }
+.drain-sys-display {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 48px 20px; text-align: center;
+}
+.drain-sys-value { font-size: 56px; font-weight: 800; color: var(--text); line-height: 1.1; }
+.drain-sys-unit { font-size: 24px; font-weight: 400; color: var(--text-2); margin-left: 4px; }
+.drain-sys-label { font-size: 14px; color: var(--text-2); margin-top: 12px; }
+.drain-sys-sub { font-size: 11px; color: var(--text-3); margin-top: 8px; }
 
 /* ===== Responsive ===== */
 @media (max-width: 380px) {
