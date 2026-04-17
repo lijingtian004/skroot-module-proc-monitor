@@ -496,6 +496,32 @@ static double g_last_sample_time = 0;
 static double g_prev_total_cpu_sec = 0;
 static double g_battery_power_mw = 0;  // 实际电池功率 mW（从 sysfs 读取）
 
+// ============ 采样历史（用于整机模式的 App 功耗平均值）============
+#define SAMPLE_HISTORY_SIZE 60  // 60 个采样点 = 10 分钟（10s 间隔）
+
+struct SampleEntry {
+    double battery_mw;                      // 该采样点的电池功率
+    std::unordered_set<uid_t> active_uids;  // 该采样点活跃的 UID
+};
+
+static SampleEntry g_sample_history[SAMPLE_HISTORY_SIZE];
+static int g_sample_history_idx = 0;
+static int g_sample_history_count = 0;
+
+// 计算某 UID 在历史采样中的平均电池功率
+static double calc_avg_battery_for_uid(uid_t uid) {
+    if (g_sample_history_count == 0) return 0;
+    double sum = 0;
+    int count = 0;
+    for (int i = 0; i < g_sample_history_count; i++) {
+        if (g_sample_history[i].active_uids.count(uid)) {
+            sum += g_sample_history[i].battery_mw;
+            count++;
+        }
+    }
+    return count > 0 ? sum / count : 0;
+}
+
 // 自定义标签映射（从 labels.conf 加载）
 static std::unordered_map<std::string, std::string> g_custom_labels;
 // UID → 包名 映射（从 packages.list 加载）
@@ -1117,10 +1143,18 @@ void power_tracker_sample() {
     }
 
 
+    // 读取实际电池功率（一次即可）
+    g_battery_power_mw = read_battery_power_mw();
+
+    // 收集本次采样的活跃 UID
+    std::unordered_set<uid_t> active_uids;
+
     g_power_cache.clear();
     for (auto& [uid, cur] : cur_samples) {
         AppPowerInfo info = {};
         info.uid = uid;
+
+        active_uids.insert(uid);
 
         // 绝对 CPU 占用率（total_cpu_delta 已包含所有核心，无需 *nprocs）
         if (total_cpu_delta > 0 && g_last_sample_time > 0)
@@ -1162,20 +1196,28 @@ void power_tracker_sample() {
         }
         strncpy(info.label, label, sizeof(info.label) - 1);
 
-        // 读取实际电池功率（mW），按 CPU 时间占比分配
-        // 注意：这是估算值。CPU 只是功耗的一部分（还有屏幕/内存/网络/GPU），
-        // 且不同核心能效不同（big.LITTLE），所以按 CPU 占比分摊只是粗略参考。
-        g_battery_power_mw = read_battery_power_mw();
+        // App 模式功耗：电池功率 × CPU 占比
         if (g_battery_power_mw > 0 && total_cpu_delta > 0 && g_last_sample_time > 0) {
             double frac = cpu_deltas[uid] / total_cpu_delta;
             if (frac > 1.0) frac = 1.0;
             info.power_mw = g_battery_power_mw * frac;
         } else {
-            // 兜底：无电池信息时无法估算，归零
             info.power_mw = 0;
         }
 
+        // 整机模式功耗：该 App 存活期间的平均电池功率
+        info.avg_battery_mw = calc_avg_battery_for_uid(uid);
+
         g_power_cache[uid] = info;
+    }
+
+    // 记录本次采样到历史环形缓冲区
+    if (g_battery_power_mw > 0) {
+        SampleEntry& entry = g_sample_history[g_sample_history_idx];
+        entry.battery_mw = g_battery_power_mw;
+        entry.active_uids = std::move(active_uids);
+        g_sample_history_idx = (g_sample_history_idx + 1) % SAMPLE_HISTORY_SIZE;
+        if (g_sample_history_count < SAMPLE_HISTORY_SIZE) g_sample_history_count++;
     }
 
     g_prev_samples = std::move(cur_samples);

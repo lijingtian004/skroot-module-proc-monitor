@@ -196,6 +196,7 @@ struct AppPowerInfo {
     int64_t io_write_bytes;     // 磁盘写入字节
     int     proc_count;         // 该 UID 下进程数
     double  power_mw;           // 估算功耗 mW（基于实际电池功率 × CPU占比）
+    double  avg_battery_mw;     // 该 App 存活期间的平均电池功率 mW（整机模式用）
 };
 
 // 应用功耗追踪接口
