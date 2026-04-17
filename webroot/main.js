@@ -123,8 +123,9 @@ function renderDrainInfo() {
   // 列表
   let html = '';
   drainData.forEach((a, i) => {
-    const color = a.score > 300000 ? 'var(--red)' : a.score > 100000 ? 'var(--amber)' : 'var(--green)';
+    const color = a.score > 300 ? 'var(--red)' : a.score > 100 ? 'var(--amber)' : 'var(--green)';
     const name = esc(a.label || a.package || `UID ${a.uid}`);
+    const watts = (a.score / 1000).toFixed(2);
     html += `<div class="drain-row" onclick="showDrainDetail(${i})">
       <div class="drain-rank">${i + 1}</div>
       <div class="drain-info">
@@ -135,7 +136,7 @@ function renderDrainInfo() {
           <span>${a.procs}进程</span>
         </div>
       </div>
-      <div class="drain-score" style="color:${color}">${a.score.toFixed(0)}<span style="font-size:9px">mW</span></div>
+      <div class="drain-score" style="color:${color}">${watts}<span style="font-size:9px">W</span></div>
     </div>`;
   });
   list.innerHTML = html;

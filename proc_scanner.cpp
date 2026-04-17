@@ -945,8 +945,9 @@ void power_tracker_sample() {
         fclose(f);
         if (uid == (uid_t)-1) continue;
 
-        // 只追踪用户应用 UID >= 10000
+        // 只追踪已安装应用（在 packages.list 里的 UID）
         if (uid < 10000) continue;
+        if (g_uid_pkg_map.find(uid) == g_uid_pkg_map.end()) continue;
 
         double cpu = read_proc_cpu_time(pid);
         if (cpu < 0) continue;
@@ -1016,10 +1017,15 @@ void power_tracker_sample() {
         info.io_write_bytes = cur.io_write;
         info.proc_count = cur.proc_count;
 
-        // 提取包名
+        // 提取包名：优先用 packages.list 的映射
         const char* pkg = cur.cmdline;
-        const char* sp = strrchr(cur.cmdline, ' ');
-        if (sp && *(sp + 1)) pkg = sp + 1;
+        auto pkg_it = g_uid_pkg_map.find(uid);
+        if (pkg_it != g_uid_pkg_map.end()) {
+            pkg = pkg_it->second.c_str();
+        } else {
+            const char* sp = strrchr(cur.cmdline, ' ');
+            if (sp && *(sp + 1)) pkg = sp + 1;
+        }
         strncpy(info.package_name, pkg, sizeof(info.package_name) - 1);
 
         // 显示名：优先用自定义映射 → 内置映射 → 包名最后一段
