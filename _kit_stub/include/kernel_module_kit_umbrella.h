@@ -1,33 +1,43 @@
+// 说明：仅需包含本头文件，即可直接使用本套件提供的全部能力接口。
 #pragma once
-#include <string>
-#include <vector>
-#include <cstdint>
-
-// SKRoot module metadata macros
-#define SKROOT_MODULE_NAME(name)
-#define SKROOT_MODULE_VERSION(ver)
-#define SKROOT_MODULE_DESC(desc)
-#define SKROOT_MODULE_AUTHOR(auth)
-#define SKROOT_MODULE_UUID32(uuid)
-#define SKROOT_MODULE_WEB_UI(handler)
-
-// Forward declarations
-struct CivetServer;
-struct mg_connection;
-
-enum class ServerExitAction { Exit, KeepRunning };
-
-// WebUI
-namespace kernel_module {
-    class WebUIHttpHandler {
-    public:
-        virtual void onPrepareCreate(const char* root_key, const char* module_private_dir, uint32_t port) {}
-        virtual bool handleGet(CivetServer* server, mg_connection* conn, const std::string& path, const std::string& query) { return false; }
-        virtual bool handlePost(CivetServer* server, mg_connection* conn, const std::string& path, const std::string& body) { return false; }
-        virtual ServerExitAction onBeforeServerExit() { return ServerExitAction::Exit; }
-        virtual ~WebUIHttpHandler() {}
-    };
-    namespace webui {
-        inline void send_text(mg_connection* conn, int code, const std::string& text) {}
-    }
-}
+#include "aarch64_asm_helper.h"
+#include "aarch64_asm_idle_reg_pool.h"
+#include "aarch64_asm_reg_protect_guard.h"
+#include "aarch64_asm_stack_buf_guard.h"
+#include "aarch64_asm_arg.h"
+#include "kernel_offsets/cred.h"
+#include "kernel_offsets/task_struct.h"
+#include "kernel_offsets/mm_struct.h"
+#include "kernel_offsets/vm_area_struct.h"
+#include "kernel_offsets/dentry.h"
+#include "kernel_offsets/fdtable.h"
+#include "kernel_offsets/file.h"
+#include "kernel_offsets/inode.h"
+#include "kernel_offsets/file_struct.h"
+#include "kernel_offsets/proc_ops.h"
+#include "kernel_offsets/file_operations.h"
+#include "kernel_offsets/miscdevice.h"
+#include "kernel_offsets/super_block.h"
+#include "kernel_offsets/renamedata.h"
+#include "kernel_offsets/address_space.h"
+#include "module_base_kernel_mem.h"
+#include "module_base_kernel_func_executor.h"
+#include "module_base_kernel_func_hook.h"
+#include "module_base_kernel_string_ops.h"
+#include "module_base_linux_version.h"
+#include "module_base_kernel_symbol_lookup.h"
+#include "module_base_kernel_export_symbol.h"
+#include "module_base_kernel_export_symbol.inl"
+#include "module_base_install_callback.h"
+#include "module_base_disk_storage.h"
+#include "module_descriptor.h"
+#include "module_err_def.h"
+#include "module_math.h"
+#include "module_web_ui_http_handler.h"
+#include "skroot_env/skroot_installer.h"
+#include "skroot_env/skroot_module.h"
+#include "skroot_env/skroot_root.h"
+#include "skroot_env/skroot_su_auth.h"
+#include "skroot_env/skroot_log.h"
+#include "skroot_env/skroot_test.h"
+#include "skroot_env/features/skroot_module_webui_loader.h"
