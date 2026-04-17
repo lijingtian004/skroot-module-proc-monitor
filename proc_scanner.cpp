@@ -269,3 +269,206 @@ void proc_scanner_stop() {
 void proc_scanner_scan_once() {
     scan_proc_dir();
 }
+
+std::vector<ProcInfo> proc_scanner_get_all_procs() {
+    std::vector<ProcInfo> result;
+    DIR* dir = opendir("/proc");
+    if (!dir) return result;
+
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != nullptr) {
+        if (ent->d_type != DT_DIR) continue;
+        char* endptr;
+        long pid = strtol(ent->d_name, &endptr, 10);
+        if (*endptr != '\0' || pid <= 0) continue;
+
+        ProcInfo info{};
+        info.pid = (pid_t)pid;
+        
+        if (!read_proc_comm(info.pid, info.comm, sizeof(info.comm))) continue;
+        read_proc_cmdline(info.pid, info.cmdline, sizeof(info.cmdline));
+        read_proc_status(info.pid, &info.ppid, &info.uid);
+        
+        result.push_back(info);
+    }
+    closedir(dir);
+
+    // 按 PID 排序
+    std::sort(result.begin(), result.end(), [](const ProcInfo& a, const ProcInfo& b) {
+        return a.pid < b.pid;
+    });
+
+    return result;
+}
+
+// ============ 充电信息读取 ============
+
+// 读取 sysfs 文件内容
+static bool read_sysfs_string(const char* path, char* out, size_t sz) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return false;
+    ssize_t n = read(fd, out, sz - 1);
+    close(fd);
+    if (n <= 0) return false;
+    out[n] = '\0';
+    // 去掉尾部换行
+    while (n > 0 && (out[n-1] == '\n' || out[n-1] == '\r')) {
+        out[--n] = '\0';
+    }
+    return true;
+}
+
+static int read_sysfs_int(const char* path) {
+    char buf[32] = {0};
+    if (!read_sysfs_string(path, buf, sizeof(buf))) return -1;
+    return atoi(buf);
+}
+
+// 读取单个 power_supply 设备信息
+static bool read_power_supply(const char* devname, PowerSupplyInfo* info) {
+    memset(info, 0, sizeof(*info));
+    strncpy(info->name, devname, sizeof(info->name) - 1);
+
+    char base[256];
+    snprintf(base, sizeof(base), "/sys/class/power_supply/%s", devname);
+
+    char path[512];
+
+    // type (Battery, USB, Mains, Wireless)
+    snprintf(path, sizeof(path), "%s/type", base);
+    read_sysfs_string(path, info->type, sizeof(info->type));
+
+    // status
+    snprintf(path, sizeof(path), "%s/status", base);
+    read_sysfs_string(path, info->status, sizeof(info->status));
+
+    // health
+    snprintf(path, sizeof(path), "%s/health", base);
+    read_sysfs_string(path, info->health, sizeof(info->health));
+
+    // technology
+    snprintf(path, sizeof(path), "%s/technology", base);
+    read_sysfs_string(path, info->technology, sizeof(info->technology));
+
+    // charge_type (Fast, Standard, Trickle)
+    snprintf(path, sizeof(path), "%s/charge_type", base);
+    read_sysfs_string(path, info->charge_type, sizeof(info->charge_type));
+
+    // capacity
+    snprintf(path, sizeof(path), "%s/capacity", base);
+    info->capacity = read_sysfs_int(path);
+
+    // temp
+    snprintf(path, sizeof(path), "%s/temp", base);
+    info->temp = read_sysfs_int(path);
+
+    // voltage_now (μV)
+    snprintf(path, sizeof(path), "%s/voltage_now", base);
+    info->voltage_uv = read_sysfs_int(path);
+
+    // current_now (μA)
+    snprintf(path, sizeof(path), "%s/current_now", base);
+    info->current_ua = read_sysfs_int(path);
+
+    // input_current_limit (μA)
+    snprintf(path, sizeof(path), "%s/input_current_limit", base);
+    info->input_current_limit_ua = read_sysfs_int(path);
+
+    // charge_full (μAh)
+    snprintf(path, sizeof(path), "%s/charge_full", base);
+    info->charge_full_uah = read_sysfs_int(path);
+
+    // charge_full_design (μAh)
+    snprintf(path, sizeof(path), "%s/charge_full_design", base);
+    info->charge_full_design_uah = read_sysfs_int(path);
+
+    // pd_allowed
+    snprintf(path, sizeof(path), "%s/pd_allowed", base);
+    info->pd_allowed = read_sysfs_int(path);
+    if (info->pd_allowed < 0) info->pd_allowed = 0;
+
+    return true;
+}
+
+// 判断充电速度等级
+static const char* classify_charger_speed(int input_current_ma, const char* charge_type) {
+    if (input_current_ma < 0) return "unknown";
+    if (input_current_ma >= 4000) return "super";   // VOOC/SCP
+    if (input_current_ma >= 2000) return "fast";     // QC3+/PD
+    if (input_current_ma >= 1000) return "normal";   // 标准充电
+    return "slow";                                    // USB 慢充
+}
+
+ChargingInfo charging_get_info() {
+    ChargingInfo info{};
+    info.supply_count = 0;
+    info.battery_level = -1;
+    info.battery_temp = -1;
+    info.battery_voltage_mv = -1;
+    info.battery_current_ma = -1;
+    info.charge_full_uah = -1;
+    info.charge_full_design_uah = -1;
+    info.input_current_ma = -1;
+    info.pd_supported = 0;
+
+    // 扫描 /sys/class/power_supply/ 目录
+    DIR* dir = opendir("/sys/class/power_supply");
+    if (!dir) return info;
+
+    struct dirent* ent;
+    int max_input_current = -1;
+
+    while ((ent = readdir(dir)) != nullptr) {
+        if (ent->d_name[0] == '.') continue;
+        if (info.supply_count >= 8) break;
+
+        PowerSupplyInfo* ps = &info.supplies[info.supply_count];
+        if (read_power_supply(ent->d_name, ps)) {
+            info.supply_count++;
+
+            // 找主电池设备
+            if (strcasecmp(ps->type, "Battery") == 0) {
+                if (ps->capacity >= 0) info.battery_level = ps->capacity;
+                if (ps->temp > 0) info.battery_temp = ps->temp;
+                if (ps->voltage_uv > 0) info.battery_voltage_mv = ps->voltage_uv / 1000;
+                // 自适应判断 current_now 单位 + 正负号修正：
+                // |值| > 100000 → μA，除以 1000 得 mA
+                // |值| <= 100000 → mA，直接用
+                // 正负号：有些设备充电为负、放电为正，用 status 修正
+                if (ps->current_ua != 0) {
+                    int abs_val = ps->current_ua < 0 ? -ps->current_ua : ps->current_ua;
+                    int ma = (abs_val > 100000) ? (ps->current_ua / 1000) : ps->current_ua;
+                    // 如果 status 是 Charging 但电流为负，翻转
+                    if (strcasecmp(ps->status, "Charging") == 0 && ma < 0) ma = -ma;
+                    // 如果 status 是 Discharging 但电流为正，翻转
+                    if (strcasecmp(ps->status, "Discharging") == 0 && ma > 0) ma = -ma;
+                    info.battery_current_ma = ma;
+                }
+                if (ps->charge_full_uah > 0) info.charge_full_uah = ps->charge_full_uah;
+                if (ps->charge_full_design_uah > 0) info.charge_full_design_uah = ps->charge_full_design_uah;
+                if (ps->status[0]) strncpy(info.battery_status, ps->status, sizeof(info.battery_status) - 1);
+                if (ps->health[0]) strncpy(info.battery_health, ps->health, sizeof(info.battery_health) - 1);
+                if (ps->technology[0]) strncpy(info.battery_technology, ps->technology, sizeof(info.battery_technology) - 1);
+                if (ps->charge_type[0] && strcmp(ps->charge_type, "N/A") != 0)
+                    strncpy(info.charge_type, ps->charge_type, sizeof(info.charge_type) - 1);
+            }
+
+            // 收集充电来源设备的输入电流
+            if (strcasecmp(ps->type, "USB") == 0 || strcasecmp(ps->type, "Mains") == 0 ||
+                strcasecmp(ps->type, "Wireless") == 0) {
+                if (ps->input_current_limit_ua > max_input_current)
+                    max_input_current = ps->input_current_limit_ua;
+                if (ps->pd_allowed > 0) info.pd_supported = 1;
+            }
+        }
+    }
+    closedir(dir);
+
+    if (max_input_current > 0) {
+        info.input_current_ma = max_input_current / 1000;
+    }
+    strncpy(info.charger_speed, classify_charger_speed(info.input_current_ma, info.charge_type),
+            sizeof(info.charger_speed) - 1);
+
+    return info;
+}

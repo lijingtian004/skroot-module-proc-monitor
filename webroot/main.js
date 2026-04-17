@@ -1,321 +1,366 @@
-// main.js — 进程监控 WebUI 前端逻辑
+// main.js — Multi-page process monitor
 
-// ============ 全局状态 ============
 let allEvents = [];
 let allAlerts = [];
+let allProcs = [];
+let filteredProcs = [];
+let currentProcCat = 'all';
 let stats = { total: 0, alerts: 0, exec: 0, exit: 0 };
-let currentTab = 'live';
+let currentPage = 'overview';
 let pollTimer = null;
-let lastEventCount = 0;
+let chargingInfo = null;
 
-// ============ API 调用 ============
-async function api(path, body = '') {
-  try {
-    const resp = await fetch(new URL(path, window.location.href), {
-      method: 'POST',
-      body: body,
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    return await resp.text();
-  } catch (e) {
-    console.error(`API error [${path}]:`, e);
-    return null;
+// ============ Process Categories ============
+const RISKY_NAMES = [
+  'magisk', 'magiskd', 'su', 'frida', 'lsposed', 'lsposedd',
+  'riru', 'zygisk', 'shamiko', 'xposed', 'edxposed',
+  'kernelsu', 'apatch', 'strace', 'ltrace', 'gdb', 'gdbserver',
+];
+const SYSTEM_NAMES = [
+  'system_server', 'init', 'zygote', 'zygote64', 'servicemanager',
+  'binder', 'hwservicemanager', 'vndservicemanager', 'ueventd',
+  'logd', 'lmkd', 'installd', 'tombstoned', 'crash_dump',
+  'linker', 'linker64', 'app_process', 'heapprofd',
+];
+const SHELL_NAMES = ['sh', 'bash', 'logcat', 'adb', 'adbd', 'toybox', 'toybox64'];
+
+function classifyProc(p) {
+  const comm = (p.comm || '').toLowerCase();
+  const cmdline = (p.cmdline || '').toLowerCase();
+  const uid = p.uid;
+  for (const name of RISKY_NAMES) {
+    if (comm.includes(name) || cmdline.includes(name)) return 'risky';
   }
+  if (uid === 0 || uid === 1000) {
+    for (const name of SYSTEM_NAMES) { if (comm.includes(name)) return 'system'; }
+    return 'system';
+  }
+  if (uid === 2000) return 'shell';
+  if (uid >= 10000) return 'app';
+  return 'service';
 }
 
-// ============ 数据拉取 ============
+// ============ API ============
+async function api(path, body = '') {
+  try {
+    const resp = await fetch(new URL(path, window.location.href), { method: 'POST', body });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.text();
+  } catch (e) { console.error(`API [${path}]:`, e); return null; }
+}
+
+// ============ Data Fetch ============
 async function fetchEvents() {
   const raw = await api('/api/events', '200');
-  if (raw) {
-    try {
-      allEvents = JSON.parse(raw);
-    } catch (e) {}
-  }
+  if (raw) try { allEvents = JSON.parse(raw); } catch (e) {}
 }
 
 async function fetchAlerts() {
   const raw = await api('/api/alerts', '100');
-  if (raw) {
-    try {
-      allAlerts = JSON.parse(raw);
-    } catch (e) {}
-  }
+  if (raw) try { allAlerts = JSON.parse(raw); } catch (e) {}
 }
 
 async function fetchStats() {
   const raw = await api('/api/stats');
-  if (raw) {
-    try {
-      const s = JSON.parse(raw);
-      stats.total  = s.total_events  || 0;
-      stats.alerts = s.total_alerts  || 0;
-      updateStatsUI();
-    } catch (e) {}
-  }
+  if (raw) try {
+    const s = JSON.parse(raw);
+    stats.total = s.total_events || 0;
+    stats.alerts = s.total_alerts || 0;
+    updateStatsUI();
+  } catch (e) {}
+}
+
+async function fetchProcs() {
+  const raw = await api('/api/procs');
+  if (raw) try {
+    allProcs = JSON.parse(raw).map(p => ({ ...p, cat: classifyProc(p) }));
+    updateProcCounts();
+    if (currentPage === 'procs') filterProcs();
+    if (currentPage === 'overview') updateOverviewSummary();
+  } catch (e) {}
+}
+
+async function fetchCharging() {
+  const raw = await api('/api/charging');
+  if (raw) try {
+    chargingInfo = JSON.parse(raw);
+    if (currentPage === 'power') renderChargingInfo();
+    if (currentPage === 'overview') updateOverviewPower();
+  } catch (e) {}
 }
 
 async function manualScan() {
   await api('/api/scan');
-  // 短暂延迟后刷新
   setTimeout(pollAll, 300);
 }
 
-// ============ UI 更新 ============
+// ============ Page Navigation ============
+function switchPage(page) {
+  currentPage = page;
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+  if (page === 'overview') { updateStatsUI(); updateOverviewAlerts(); updateOverviewSummary(); updateOverviewPower(); }
+  if (page === 'procs') { fetchProcs(); filterProcs(); }
+  if (page === 'alerts') renderAlertList();
+  if (page === 'log') filterHistory();
+  if (page === 'power') fetchCharging();
+}
 
+// ============ UI Updates ============
 function updateStatsUI() {
-  document.getElementById('statTotal').textContent  = formatNum(stats.total);
-  document.getElementById('statAlerts').textContent  = formatNum(stats.alerts);
-  document.getElementById('statExec').textContent    = formatNum(stats.total - stats.exit - stats.alerts);
-  document.getElementById('statExit').textContent    = formatNum(stats.exit || 0);
-
-  // 告警角标
-  const badge = document.getElementById('alertBadge');
-  if (stats.alerts > 0) {
-    badge.style.display = 'inline';
-    badge.textContent = stats.alerts;
-  } else {
-    badge.style.display = 'none';
+  document.getElementById('statTotal').textContent = fmtN(stats.total);
+  document.getElementById('statAlerts').textContent = fmtN(stats.alerts);
+  document.getElementById('statExec').textContent = fmtN(stats.total - stats.exit - stats.alerts);
+  document.getElementById('statExit').textContent = fmtN(stats.exit || 0);
+  const ab = document.getElementById('navAlertBadge');
+  if (ab) {
+    if (stats.alerts > 0) { ab.style.display = 'block'; ab.textContent = stats.alerts; }
+    else { ab.style.display = 'none'; }
   }
 }
 
-function formatNum(n) {
-  if (n >= 10000) return (n / 1000).toFixed(1) + 'k';
-  return String(n);
-}
-
-function formatTime(ts) {
-  const d = new Date(ts);
-  const pad = n => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-function formatTimestamp(ts) {
-  const d = new Date(ts);
-  const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds())}`;
-}
-
-function typeIcon(type) {
-  switch (type) {
-    case 0: return '🟢';  // EXEC
-    case 1: return '⚪';  // EXIT
-    case 2: return '🔴';  // ALERT
-    default: return '❓';
+function updateOverviewAlerts() {
+  const el = document.getElementById('overviewAlerts');
+  const count = document.getElementById('overviewAlertCount');
+  count.textContent = allAlerts.length;
+  if (allAlerts.length === 0) {
+    el.innerHTML = '<div class="empty-hint">暂无告警</div>';
+    return;
   }
+  const recent = allAlerts.slice(0, 5);
+  el.innerHTML = recent.map(ev => `
+    <div class="event-item alert-item" onclick='showDetail(${JSON.stringify(ev).replace(/'/g, "&#39;")})'>
+      <span class="event-icon alert">⚠</span>
+      <div class="event-body">
+        <div class="event-main"><span class="comm">${esc(ev.comm)}</span><span class="pid">PID ${ev.pid}</span></div>
+        <div class="event-reason">${esc(ev.reason || '')}</div>
+      </div>
+      <span class="event-time">${fmtTime(ev.ts)}</span>
+    </div>
+  `).join('');
 }
 
-function typeLabel(type) {
-  switch (type) {
-    case 0: return '启动';
-    case 1: return '退出';
-    case 2: return '告警';
-    default: return '未知';
-  }
+function updateOverviewSummary() {
+  const counts = { system: 0, service: 0, app: 0, shell: 0, risky: 0 };
+  for (const p of allProcs) counts[p.cat]++;
+  document.getElementById('sumSystem').textContent = counts.system;
+  document.getElementById('sumService').textContent = counts.service;
+  document.getElementById('sumApp').textContent = counts.app;
+  document.getElementById('sumShell').textContent = counts.shell;
+  document.getElementById('sumRisky').textContent = counts.risky;
 }
 
-function typeClass(type) {
-  switch (type) {
-    case 0: return 'exec-item';
-    case 1: return 'exit-item';
-    case 2: return 'alert-item';
-    default: return '';
-  }
+function updateOverviewPower() {
+  if (!chargingInfo) return;
+  document.getElementById('miniBatt').textContent = chargingInfo.battery_level >= 0 ? chargingInfo.battery_level : '--';
+  document.getElementById('miniBattStatus').textContent = chargingInfo.battery_status || '--';
 }
 
-function uidToName(uid) {
-  if (uid === 0) return 'root';
-  if (uid >= 10000 && uid < 20000) return `u${Math.floor(uid/10000)-1} (App)`;
-  if (uid === 2000) return 'shell';
-  return `uid:${uid}`;
+function updateProcCounts() {
+  const counts = { all: allProcs.length, system: 0, service: 0, app: 0, shell: 0, risky: 0 };
+  for (const p of allProcs) counts[p.cat]++;
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    const cat = btn.dataset.cat;
+    const cs = btn.querySelector('.cat-count');
+    if (cs) cs.textContent = counts[cat] || 0;
+  });
+  const count = document.getElementById('procCount');
+  if (count) count.textContent = `${counts.all} 个进程`;
+  const pb = document.getElementById('navProcBadge');
+  if (pb) { pb.style.display = 'block'; pb.textContent = counts.all; }
 }
 
-// ============ 渲染 ============
-
+// ============ Render: Events ============
 function renderEventItem(ev, isNew) {
   const div = document.createElement('div');
-  div.className = `event-item ${typeClass(ev.type)}${isNew ? ' new' : ''}`;
+  const cls = ev.type === 0 ? 'exec' : ev.type === 1 ? 'exit' : 'alert';
+  div.className = `event-item ${cls}-item${isNew ? ' new' : ''}`;
   div.onclick = () => showDetail(ev);
-
-  const icon = typeIcon(ev.type);
-  const time = formatTime(ev.ts);
-  const reason = ev.reason ? `<div class="event-reason">⚠️ ${escHtml(ev.reason)}</div>` : '';
-  const cmdline = ev.cmdline ? escHtml(ev.cmdline.substring(0, 80)) : '';
-
+  const icon = ev.type === 0 ? '▶' : ev.type === 1 ? '■' : '⚠';
+  const reason = ev.reason ? `<div class="event-reason">⚠ ${esc(ev.reason)}</div>` : '';
+  const cmd = ev.cmdline ? esc(ev.cmdline.substring(0, 80)) : '';
   div.innerHTML = `
-    <span class="event-icon">${icon}</span>
+    <span class="event-icon ${cls}">${icon}</span>
     <div class="event-body">
-      <div class="event-main">
-        <span class="comm">${escHtml(ev.comm)}</span>
-        <span class="pid">PID ${ev.pid}</span>
-      </div>
-      <div class="event-sub">${cmdline || `PPID ${ev.ppid} · ${uidToName(ev.uid)}`}</div>
+      <div class="event-main"><span class="comm">${esc(ev.comm)}</span><span class="pid">PID ${ev.pid}</span></div>
+      <div class="event-sub">${cmd || `PPID ${ev.ppid} · ${uidName(ev.uid)}`}</div>
       ${reason}
     </div>
-    <span class="event-time">${time}</span>
+    <span class="event-time">${fmtTime(ev.ts)}</span>
   `;
   return div;
-}
-
-function renderLiveList() {
-  const list = document.getElementById('liveList');
-  const autoScroll = document.getElementById('autoScroll').checked;
-  const wasAtTop = list.scrollTop < 50;
-
-  list.innerHTML = '';
-  // 统计各类型数量
-  stats.exit = allEvents.filter(e => e.type === 1).length;
-
-  for (const ev of allEvents) {
-    list.appendChild(renderEventItem(ev, false));
-  }
-
-  if (autoScroll && wasAtTop) {
-    list.scrollTop = 0;
-  }
 }
 
 function renderAlertList() {
   const list = document.getElementById('alertList');
   const summary = document.getElementById('alertSummary');
-
   if (allAlerts.length === 0) {
-    list.innerHTML = `
-      <div class="empty-state">
-        <span class="empty-icon">✅</span>
-        <p>未检测到可疑进程</p>
-      </div>`;
-    summary.textContent = '暂无告警';
+    list.innerHTML = '<div class="empty-state"><span class="empty-icon">▪</span><p>未检测到可疑进程</p></div>';
+    summary.textContent = '无告警';
     return;
   }
-
-  summary.textContent = `共 ${allAlerts.length} 条告警`;
+  summary.textContent = `${allAlerts.length} 条告警`;
   list.innerHTML = '';
-
-  for (const ev of allAlerts) {
-    list.appendChild(renderEventItem(ev, false));
-  }
+  for (const ev of allAlerts.slice(0, 200)) list.appendChild(renderEventItem(ev, false));
 }
 
 function renderHistoryList(events) {
   const list = document.getElementById('historyList');
   list.innerHTML = '';
-
-  if (events.length === 0) {
-    list.innerHTML = '<div class="loading">无匹配记录</div>';
-    return;
-  }
-
-  const display = events.slice(0, 200); // 最多显示 200 条
-  for (const ev of display) {
-    list.appendChild(renderEventItem(ev, false));
-  }
+  if (events.length === 0) { list.innerHTML = '<div class="loading">无匹配记录</div>'; return; }
+  for (const ev of events.slice(0, 200)) list.appendChild(renderEventItem(ev, false));
 }
 
-// ============ 筛选 ============
+// ============ Render: Procs ============
+function renderProcItem(p) {
+  const div = document.createElement('div');
+  div.className = 'event-item';
+  div.onclick = () => showProcDetail(p);
+  const cmd = p.cmdline ? esc(p.cmdline.substring(0, 60)) : '';
+  div.innerHTML = `
+    <div class="event-body">
+      <div class="event-main"><span class="comm">${esc(p.comm)}</span><span class="pid">PID ${p.pid}</span></div>
+      <div class="event-sub">${cmd || `PPID ${p.ppid} · ${uidName(p.uid)}`}</div>
+    </div>
+  `;
+  return div;
+}
+
+function renderProcsList(procs) {
+  const list = document.getElementById('procList');
+  list.innerHTML = '';
+  if (procs.length === 0) { list.innerHTML = '<div class="loading">无进程数据</div>'; return; }
+  for (const p of procs.slice(0, 500)) list.appendChild(renderProcItem(p));
+}
+
+// ============ Filter ============
+function filterProcs() {
+  const kw = document.getElementById('procSearchInput').value.toLowerCase();
+  filteredProcs = allProcs;
+  if (currentProcCat !== 'all') filteredProcs = filteredProcs.filter(p => p.cat === currentProcCat);
+  if (kw) filteredProcs = filteredProcs.filter(p =>
+    p.comm.toLowerCase().includes(kw) || String(p.pid).includes(kw) || (p.cmdline && p.cmdline.toLowerCase().includes(kw))
+  );
+  const count = document.getElementById('procCount');
+  if (count) count.textContent = kw ? `${filteredProcs.length} / ${allProcs.length}` : `${allProcs.length} 个进程`;
+  renderProcsList(filteredProcs);
+}
 
 function filterHistory() {
-  const keyword = document.getElementById('searchInput').value.toLowerCase();
-  const typeFilter = document.getElementById('filterType').value;
-
+  const kw = document.getElementById('searchInput').value.toLowerCase();
+  const tf = document.getElementById('filterType').value;
   let filtered = allEvents;
-
-  if (typeFilter !== 'all') {
-    const typeMap = { exec: 0, exit: 1, alert: 2 };
-    filtered = filtered.filter(e => e.type === typeMap[typeFilter]);
-  }
-
-  if (keyword) {
-    filtered = filtered.filter(e =>
-      e.comm.toLowerCase().includes(keyword) ||
-      String(e.pid).includes(keyword) ||
-      (e.cmdline && e.cmdline.toLowerCase().includes(keyword))
-    );
-  }
-
+  if (tf !== 'all') { const m = { exec: 0, exit: 1, alert: 2 }; filtered = filtered.filter(e => e.type === m[tf]); }
+  if (kw) filtered = filtered.filter(e => e.comm.toLowerCase().includes(kw) || String(e.pid).includes(kw) || (e.cmdline && e.cmdline.toLowerCase().includes(kw)));
   renderHistoryList(filtered);
 }
 
-// ============ 事件详情浮层 ============
+function switchProcCat(cat) {
+  currentProcCat = cat;
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === cat));
+  filterProcs();
+}
 
+// ============ Modals ============
 function showDetail(ev) {
   const overlay = document.getElementById('modalOverlay');
   const body = document.getElementById('modalBody');
   const title = document.getElementById('modalTitle');
-
-  title.textContent = `${typeIcon(ev.type)} ${ev.comm} — ${typeLabel(ev.type)}`;
-
-  const rows = [
-    ['类型', typeLabel(ev.type)],
-    ['时间', formatTimestamp(ev.ts)],
-    ['PID', ev.pid],
-    ['PPID', ev.ppid],
-    ['UID', `${ev.uid} (${uidToName(ev.uid)})`],
-    ['进程名', ev.comm],
-  ];
-
+  const typeLabel = ev.type === 0 ? '新建' : ev.type === 1 ? '退出' : '告警';
+  title.textContent = `${ev.comm} — ${typeLabel}`;
+  const rows = [['类型', typeLabel], ['时间', fmtTimestamp(ev.ts)], ['PID', ev.pid], ['PPID', ev.ppid], ['UID', `${ev.uid} (${uidName(ev.uid)})`], ['名称', ev.comm]];
   if (ev.cmdline) rows.push(['命令行', ev.cmdline]);
-  if (ev.reason) rows.push(['告警原因', ev.reason]);
-
-  body.innerHTML = rows.map(([label, value]) =>
-    `<div class="detail-row">
-      <span class="detail-label">${escHtml(label)}</span>
-      <span class="detail-value">${escHtml(String(value))}</span>
-    </div>`
-  ).join('');
-
+  if (ev.reason) rows.push(['原因', ev.reason]);
+  body.innerHTML = rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(String(v))}</span></div>`).join('');
   overlay.classList.add('show');
 }
 
-function closeModal() {
-  document.getElementById('modalOverlay').classList.remove('show');
+function showProcDetail(p) {
+  const overlay = document.getElementById('modalOverlay');
+  const body = document.getElementById('modalBody');
+  const title = document.getElementById('modalTitle');
+  title.textContent = `${p.comm} — 进程`;
+  const rows = [['PID', p.pid], ['PPID', p.ppid], ['UID', `${p.uid} (${uidName(p.uid)})`], ['名称', p.comm]];
+  if (p.cmdline) rows.push(['命令行', p.cmdline]);
+  body.innerHTML = rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(String(v))}</span></div>`).join('');
+  overlay.classList.add('show');
 }
 
-// ============ Tab 切换 ============
+function closeModal() { document.getElementById('modalOverlay').classList.remove('show'); }
 
-function switchTab(tab) {
-  currentTab = tab;
-  document.querySelectorAll('.tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.tab === tab);
-  });
-  document.querySelectorAll('.panel').forEach(p => {
-    p.classList.toggle('active', p.id === `panel-${tab}`);
-  });
-
-  // 切换时刷新数据
-  if (tab === 'alerts') renderAlertList();
-  if (tab === 'history') filterHistory();
+// ============ Charging Render ============
+function renderChargingInfo() {
+  if (!chargingInfo) return;
+  const ov = document.getElementById('chargingOverview');
+  const lvl = chargingInfo.battery_level >= 0 ? chargingInfo.battery_level : '--';
+  const status = chargingInfo.battery_status || '未知';
+  const speed = chargingInfo.charger_speed || 'unknown';
+  ov.innerHTML = `
+    <div class="charge-big-status">${esc(status)}</div>
+    <div class="charge-level">
+      <div class="charge-level-num">${lvl}<span style="font-size:20px;color:var(--text-3)">%</span></div>
+      <div class="charge-level-bar"><div class="charge-level-fill" style="width:${lvl}%"></div></div>
+    </div>
+    <div class="charge-speed-label">${esc(speed)} 充电</div>
+    ${chargingInfo.battery_health_pct ? `
+    <div class="charge-health-bar">
+      <div class="charge-health-label">电池健康</div>
+      <div class="charge-health-value">${chargingInfo.battery_health_pct.toFixed(1)}%</div>
+      <div class="charge-health-track"><div class="charge-health-fill" style="width:${chargingInfo.battery_health_pct}%"></div></div>
+    </div>` : ''}
+  `;
+  const det = document.getElementById('chargingDetails');
+  const rows = [];
+  if (chargingInfo.battery_temp > 0) rows.push(['温度', (chargingInfo.battery_temp / 10).toFixed(1) + ' °C']);
+  if (chargingInfo.battery_voltage_mv > 0) rows.push(['电压', chargingInfo.battery_voltage_mv + ' mV']);
+  if (chargingInfo.battery_current_ma !== -1) rows.push(['电流', chargingInfo.battery_current_ma + ' mA']);
+  if (chargingInfo.charge_type && chargingInfo.charge_type !== 'N/A') rows.push(['充电类型', chargingInfo.charge_type]);
+  if (chargingInfo.battery_technology) rows.push(['电池技术', chargingInfo.battery_technology]);
+  if (chargingInfo.battery_health) rows.push(['健康状态', chargingInfo.battery_health]);
+  if (rows.length) {
+    det.innerHTML = `<div class="section-title">详细信息</div><div class="detail-grid">${rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(v)}</span></div>`).join('')}</div>`;
+  }
+  const sup = document.getElementById('chargingSupplies');
+  if (chargingInfo.supplies && chargingInfo.supplies.length) {
+    let html = '<div class="section-title">电源设备</div>';
+    for (const s of chargingInfo.supplies) {
+      html += `<div class="supply-card">
+        <div class="supply-header">${esc(s.name)} <span class="supply-type-badge">${esc(s.type)}</span></div>
+        <div class="supply-rows">
+          ${s.status ? `<div class="supply-kv"><span class="k">状态</span><span class="v">${esc(s.status)}</span></div>` : ''}
+          ${s.capacity ? `<div class="supply-kv"><span class="k">电量</span><span class="v">${s.capacity}%</span></div>` : ''}
+          ${s.temp ? `<div class="supply-kv"><span class="k">温度</span><span class="v">${(s.temp/10).toFixed(1)}°C</span></div>` : ''}
+          ${s.voltage_uv ? `<div class="supply-kv"><span class="k">电压</span><span class="v">${(s.voltage_uv/1000).toFixed(0)}mV</span></div>` : ''}
+        </div>
+      </div>`;
+    }
+    sup.innerHTML = html;
+  }
 }
 
-// ============ 轮询 ============
-
+// ============ Polling ============
 async function pollAll() {
-  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats()]);
-
-  // 更新状态指示
+  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs(), fetchCharging()]);
   const dot = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
   dot.classList.add('online');
   text.textContent = '在线';
-
-  // 根据当前 tab 刷新对应面板
-  if (currentTab === 'live')    renderLiveList();
-  if (currentTab === 'alerts')  renderAlertList();
-  if (currentTab === 'history') filterHistory();
+  if (currentPage === 'overview') { updateStatsUI(); updateOverviewAlerts(); updateOverviewSummary(); updateOverviewPower(); }
+  if (currentPage === 'alerts') renderAlertList();
+  if (currentPage === 'log') filterHistory();
 }
 
 function startPolling() {
   pollAll();
-  pollTimer = setInterval(pollAll, 1500); // 1.5 秒轮询
+  pollTimer = setInterval(pollAll, 5000);
 }
 
-// ============ 工具函数 ============
+// ============ Helpers ============
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function fmtN(n) { return n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
+function fmtTime(ts) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+function fmtTimestamp(ts) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds())}`; }
+function uidName(uid) { if (uid === 0) return 'root'; if (uid >= 10000 && uid < 20000) return `u${Math.floor(uid/10000)-1}`; if (uid === 2000) return 'shell'; return `uid:${uid}`; }
 
-function escHtml(s) {
-  const div = document.createElement('div');
-  div.textContent = s;
-  return div.innerHTML;
-}
-
-// ============ 启动 ============
-
+// ============ Init ============
 document.addEventListener('DOMContentLoaded', startPolling);

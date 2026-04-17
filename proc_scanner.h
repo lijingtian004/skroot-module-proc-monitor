@@ -124,8 +124,60 @@ private:
 // 全局事件缓冲区
 extern EventBuffer g_event_buf;
 
+// 当前进程信息（用于 /api/procs）
+struct ProcInfo {
+    pid_t   pid;
+    pid_t   ppid;
+    uid_t   uid;
+    char    comm[64];
+    char    cmdline[256];
+};
+
 // 进程扫描器接口
 int  proc_scanner_init(const char* module_private_dir);
 void proc_scanner_start();
 void proc_scanner_stop();
 void proc_scanner_scan_once();   // 手动触发一次扫描
+std::vector<ProcInfo> proc_scanner_get_all_procs();  // 获取当前所有进程
+
+// ============ 充电信息 ============
+
+// 单个 power_supply 设备信息
+struct PowerSupplyInfo {
+    char name[64];              // 设备名 (battery, usb, ac, wireless...)
+    char type[32];              // 类型 (Battery, USB, Mains, Wireless...)
+    char status[32];            // 状态 (Charging, Discharging, Full, Not charging)
+    char health[32];            // 健康 (Good, Overheat, Dead, Cold...)
+    char technology[32];        // 电池技术 (Li-ion, Li-poly...)
+    char charge_type[32];       // 充电类型 (Fast, Standard, Trickle, N/A)
+    int  capacity;              // 电量百分比 0-100
+    int  temp;                  // 温度 (单位 0.1°C)
+    int  voltage_uv;            // 电压 (μV)
+    int  current_ua;            // 电流 (μA, 负=放电)
+    int  input_current_limit_ua; // 输入电流上限 (μA)
+    int  charge_full_uah;       // 满电容量 (μAh)
+    int  charge_full_design_uah; // 设计容量 (μAh)
+    int  pd_allowed;            // PD 充电支持
+};
+
+// 完整充电信息快照
+struct ChargingInfo {
+    PowerSupplyInfo supplies[8]; // 最多 8 个电源设备
+    int supply_count;
+    int battery_level;          // 主电池电量 %
+    int battery_temp;           // 温度 (0.1°C)
+    int battery_voltage_mv;     // 电压 mV
+    int battery_current_ma;     // 电流 mA
+    char battery_status[32];    // 状态
+    char battery_health[32];    // 健康
+    char battery_technology[32]; // 技术
+    char charge_type[32];       // 充电类型
+    int  charge_full_uah;       // 满电容量
+    int  charge_full_design_uah; // 设计容量
+    char charger_speed[16];     // 充电速度等级: slow/normal/fast/super
+    int  input_current_ma;      // 输入电流上限 mA
+    int  pd_supported;          // PD 支持
+};
+
+// 读取当前充电信息
+ChargingInfo charging_get_info();

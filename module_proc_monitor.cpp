@@ -23,6 +23,7 @@ extern "C" {
     cJSON* cJSON_AddStringToObject(cJSON* object, const char* name, const char* string);
     cJSON* cJSON_AddNumberToObject(cJSON* object, const char* name, double number);
     cJSON* cJSON_AddItemToArray(cJSON* array, cJSON* item);
+    cJSON* cJSON_AddItemToObject(cJSON* object, const char* name, cJSON* item);
     char*  cJSON_PrintUnformatted(const cJSON* item);
     void   cJSON_free(void* ptr);
 }
@@ -49,6 +50,78 @@ static std::string build_event_json(const std::vector<ProcEvent>& events) {
     std::string result(raw);
     cJSON_free(raw);
     cJSON_Delete(arr);
+    return result;
+}
+
+static std::string build_procs_json(const std::vector<ProcInfo>& procs) {
+    cJSON* arr = cJSON_CreateArray();
+    for (auto& p : procs) {
+        cJSON* obj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(obj, "pid",  (double)p.pid);
+        cJSON_AddNumberToObject(obj, "ppid", (double)p.ppid);
+        cJSON_AddNumberToObject(obj, "uid",  (double)p.uid);
+        cJSON_AddStringToObject(obj, "comm", p.comm);
+        cJSON_AddStringToObject(obj, "cmdline", p.cmdline);
+        cJSON_AddItemToArray(arr, obj);
+    }
+    char* raw = cJSON_PrintUnformatted(arr);
+    std::string result(raw);
+    cJSON_free(raw);
+    cJSON_Delete(arr);
+    return result;
+}
+
+static std::string build_charging_json(const ChargingInfo& ch) {
+    cJSON* obj = cJSON_CreateObject();
+
+    // 电池概览
+    cJSON_AddNumberToObject(obj, "battery_level", ch.battery_level);
+    cJSON_AddNumberToObject(obj, "battery_temp", ch.battery_temp);
+    cJSON_AddNumberToObject(obj, "battery_voltage_mv", ch.battery_voltage_mv);
+    cJSON_AddNumberToObject(obj, "battery_current_ma", ch.battery_current_ma);
+    cJSON_AddStringToObject(obj, "battery_status", ch.battery_status);
+    cJSON_AddStringToObject(obj, "battery_health", ch.battery_health);
+    cJSON_AddStringToObject(obj, "battery_technology", ch.battery_technology);
+    cJSON_AddStringToObject(obj, "charge_type", ch.charge_type);
+    cJSON_AddNumberToObject(obj, "charge_full_uah", ch.charge_full_uah);
+    cJSON_AddNumberToObject(obj, "charge_full_design_uah", ch.charge_full_design_uah);
+    cJSON_AddStringToObject(obj, "charger_speed", ch.charger_speed);
+    cJSON_AddNumberToObject(obj, "input_current_ma", ch.input_current_ma);
+    cJSON_AddNumberToObject(obj, "pd_supported", ch.pd_supported);
+
+    // 健康度
+    if (ch.charge_full_uah > 0 && ch.charge_full_design_uah > 0) {
+        double health_pct = (double)ch.charge_full_uah / (double)ch.charge_full_design_uah * 100.0;
+        cJSON_AddNumberToObject(obj, "battery_health_pct", health_pct);
+    }
+
+    // 所有电源设备
+    cJSON* supplies = cJSON_CreateArray();
+    for (int i = 0; i < ch.supply_count; i++) {
+        auto& s = ch.supplies[i];
+        cJSON* sobj = cJSON_CreateObject();
+        cJSON_AddStringToObject(sobj, "name", s.name);
+        cJSON_AddStringToObject(sobj, "type", s.type);
+        cJSON_AddStringToObject(sobj, "status", s.status);
+        cJSON_AddStringToObject(sobj, "health", s.health);
+        cJSON_AddStringToObject(sobj, "technology", s.technology);
+        cJSON_AddStringToObject(sobj, "charge_type", s.charge_type);
+        cJSON_AddNumberToObject(sobj, "capacity", s.capacity);
+        cJSON_AddNumberToObject(sobj, "temp", s.temp);
+        cJSON_AddNumberToObject(sobj, "voltage_uv", s.voltage_uv);
+        cJSON_AddNumberToObject(sobj, "current_ua", s.current_ua);
+        cJSON_AddNumberToObject(sobj, "input_current_limit_ua", s.input_current_limit_ua);
+        cJSON_AddNumberToObject(sobj, "charge_full_uah", s.charge_full_uah);
+        cJSON_AddNumberToObject(sobj, "charge_full_design_uah", s.charge_full_design_uah);
+        cJSON_AddNumberToObject(sobj, "pd_allowed", s.pd_allowed);
+        cJSON_AddItemToArray(supplies, sobj);
+    }
+    cJSON_AddItemToObject(obj, "supplies", supplies);
+
+    char* raw = cJSON_PrintUnformatted(obj);
+    std::string result(raw);
+    cJSON_free(raw);
+    cJSON_Delete(obj);
     return result;
 }
 
@@ -141,6 +214,22 @@ public:
             return true;
         }
 
+        if (path == "/api/procs") {
+            // 获取当前所有进程列表
+            auto procs = proc_scanner_get_all_procs();
+            std::string json = build_procs_json(procs);
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
+
+        if (path == "/api/charging") {
+            // 获取充电信息
+            ChargingInfo ch = charging_get_info();
+            std::string json = build_charging_json(ch);
+            kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
+
         return false;
     }
 
@@ -154,7 +243,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("1.0.0")
+SKROOT_MODULE_VERSION("1.2.2")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")
