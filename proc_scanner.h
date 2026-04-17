@@ -190,12 +190,12 @@ struct AppPowerInfo {
     char    package_name[128];  // 包名（从 cmdline 提取）
     char    label[64];          // 显示名（通常是 comm）
     double  cpu_time_sec;       // 累计 CPU 时间（秒）
-    double  cpu_usage_pct;      // CPU 占用率 %（采样周期内）
+    double  cpu_usage_pct;      // CPU 占用率 %（占总 CPU 时间的比例）
     int64_t mem_rss_kb;         // RSS 内存 KB
     int64_t io_read_bytes;      // 磁盘读取字节
     int64_t io_write_bytes;     // 磁盘写入字节
     int     proc_count;         // 该 UID 下进程数
-    double  power_score;        // 功耗评分（相对值 0-100）
+    double  power_mw;           // 估算功耗 mW（基于实际电池功率 × CPU占比）
 };
 
 // 应用功耗追踪接口

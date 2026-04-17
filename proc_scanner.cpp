@@ -1086,9 +1086,6 @@ void power_tracker_sample() {
         cpu_deltas[uid] = delta;
     }
 
-    // 更新功耗缓存
-    int nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-    if (nprocs <= 0) nprocs = 1;
 
     g_power_cache.clear();
     for (auto& [uid, cur] : cur_samples) {
@@ -1135,18 +1132,17 @@ void power_tracker_sample() {
         }
         strncpy(info.label, label, sizeof(info.label) - 1);
 
-        // 读取实际电池功率（mW），按 CPU 占比分配
+        // 读取实际电池功率（mW），按 CPU 时间占比分配
+        // 注意：这是估算值。CPU 只是功耗的一部分（还有屏幕/内存/网络/GPU），
+        // 且不同核心能效不同（big.LITTLE），所以按 CPU 占比分摊只是粗略参考。
         g_battery_power_mw = read_battery_power_mw();
         if (g_battery_power_mw > 0 && total_cpu_delta > 0 && g_last_sample_time > 0) {
-            // 实际总功耗 × 该应用 CPU 占比（total_cpu_delta 已含所有核心）
             double frac = cpu_deltas[uid] / total_cpu_delta;
             if (frac > 1.0) frac = 1.0;
-            info.power_score = g_battery_power_mw * frac;
+            info.power_mw = g_battery_power_mw * frac;
         } else {
-            // 兜底：无电池信息时用粗略估算
-            double cpu_mw = info.cpu_usage_pct / 100.0 * 500.0 * nprocs;
-            double mem_mw = cur.mem_rss_kb / 1024.0 / 1024.0 * 100.0;
-            info.power_score = cpu_mw + mem_mw;
+            // 兜底：无电池信息时无法估算，归零
+            info.power_mw = 0;
         }
 
         g_power_cache[uid] = info;
@@ -1164,7 +1160,7 @@ std::vector<AppPowerInfo> power_tracker_get_top(int n) {
     }
     std::sort(result.begin(), result.end(),
         [](const AppPowerInfo& a, const AppPowerInfo& b) {
-            return a.power_score > b.power_score;
+            return a.power_mw > b.power_mw;
         });
     if ((int)result.size() > n) result.resize(n);
     return result;

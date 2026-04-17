@@ -596,6 +596,7 @@ body {
 }
 .drain-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
 .drain-score { font-size: 16px; font-weight: 700; flex-shrink: 0; }
+.drain-note { font-size: 10px; color: var(--text-3); text-align: center; margin-top: 12px; padding: 8px; line-height: 1.4; }
 
 /* ===== Responsive ===== */
 @media (max-width: 380px) {
