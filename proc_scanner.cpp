@@ -431,12 +431,18 @@ ChargingInfo charging_get_info() {
                 if (ps->capacity >= 0) info.battery_level = ps->capacity;
                 if (ps->temp > 0) info.battery_temp = ps->temp;
                 if (ps->voltage_uv > 0) info.battery_voltage_mv = ps->voltage_uv / 1000;
-                // 自适应判断 current_now 单位：
+                // 自适应判断 current_now 单位 + 正负号修正：
                 // |值| > 100000 → μA，除以 1000 得 mA
                 // |值| <= 100000 → mA，直接用
+                // 正负号：有些设备充电为负、放电为正，用 status 修正
                 if (ps->current_ua != 0) {
                     int abs_val = ps->current_ua < 0 ? -ps->current_ua : ps->current_ua;
-                    info.battery_current_ma = (abs_val > 100000) ? (ps->current_ua / 1000) : ps->current_ua;
+                    int ma = (abs_val > 100000) ? (ps->current_ua / 1000) : ps->current_ua;
+                    // 如果 status 是 Charging 但电流为负，翻转
+                    if (strcasecmp(ps->status, "Charging") == 0 && ma < 0) ma = -ma;
+                    // 如果 status 是 Discharging 但电流为正，翻转
+                    if (strcasecmp(ps->status, "Discharging") == 0 && ma > 0) ma = -ma;
+                    info.battery_current_ma = ma;
                 }
                 if (ps->charge_full_uah > 0) info.charge_full_uah = ps->charge_full_uah;
                 if (ps->charge_full_design_uah > 0) info.charge_full_design_uah = ps->charge_full_design_uah;
