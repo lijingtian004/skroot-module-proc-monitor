@@ -3,140 +3,168 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>进程行为监控 — SKRoot Pro</title>
+  <title>PROC MONITOR — SKRoot Pro</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app">
-    <!-- 顶部状态栏 -->
+    <!-- Header -->
     <header class="header">
       <div class="header-left">
-        <span class="logo">🔍</span>
-        <h1>进程监控</h1>
+        <span class="logo">▪</span>
+        <h1>Proc Monitor</h1>
       </div>
       <div class="header-right">
         <span class="status-dot" id="statusDot"></span>
-        <span class="status-text" id="statusText">连接中...</span>
+        <span class="status-text" id="statusText">OFFLINE</span>
       </div>
     </header>
 
-    <!-- 统计卡片 -->
-    <div class="stats-bar">
-      <div class="stat-card">
-        <div class="stat-num amber" id="statTotal">0</div>
-        <div class="stat-label">Events</div>
+    <!-- 页面容器 -->
+    <div class="page active" id="page-overview">
+      <div class="page-title">Overview</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-num amber" id="statTotal">0</div>
+          <div class="stat-label">Total Events</div>
+        </div>
+        <div class="stat-card stat-card-danger">
+          <div class="stat-num red" id="statAlerts">0</div>
+          <div class="stat-label">Alerts</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num green" id="statExec">0</div>
+          <div class="stat-label">Created</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num blue" id="statExit">0</div>
+          <div class="stat-label">Exited</div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-num red" id="statAlerts">0</div>
-        <div class="stat-label">Alerts</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num green" id="statExec">0</div>
-        <div class="stat-label">Created</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num blue" id="statExit">0</div>
-        <div class="stat-label">Exited</div>
-      </div>
-    </div>
 
-    <!-- Tab 切换 -->
-    <div class="tab-bar">
-      <button class="tab active" data-tab="procs" onclick="switchTab('procs')">
-        <span class="tab-icon">▪</span> Procs
-        <span class="badge" id="procBadge">0</span>
-      </button>
-      <button class="tab" data-tab="alerts" onclick="switchTab('alerts')">
-        <span class="tab-icon">▪</span> Alerts
-        <span class="badge" id="alertBadge" style="display:none">0</span>
-      </button>
-      <button class="tab" data-tab="history" onclick="switchTab('history')">
-        <span class="tab-icon">▪</span> Log
-      </button>
-      <button class="tab" data-tab="charging" onclick="switchTab('charging')">
-        <span class="tab-icon">▪</span> Power
-      </button>
-    </div>
+      <div class="section-block">
+        <div class="section-header">
+          <span class="section-label">Recent Alerts</span>
+          <span class="section-count" id="overviewAlertCount">0</span>
+        </div>
+        <div class="section-body" id="overviewAlerts">
+          <div class="empty-hint">No alerts detected</div>
+        </div>
+      </div>
 
-    <!-- 进程列表面板 (默认) -->
-    <div class="panel active" id="panel-procs">
-      <div class="panel-toolbar">
-        <input type="text" class="search-input" id="procSearchInput" placeholder="搜索进程名、PID或命令行..." oninput="filterProcs()">
-        <button class="btn-sm" onclick="fetchProcs()">🔄</button>
+      <div class="section-block">
+        <div class="section-header">
+          <span class="section-label">Process Summary</span>
+        </div>
+        <div class="summary-grid" id="overviewSummary">
+          <div class="summary-item"><span class="summary-dot dot-system"></span><span class="summary-name">System</span><span class="summary-val" id="sumSystem">0</span></div>
+          <div class="summary-item"><span class="summary-dot dot-service"></span><span class="summary-name">Service</span><span class="summary-val" id="sumService">0</span></div>
+          <div class="summary-item"><span class="summary-dot dot-app"></span><span class="summary-name">App</span><span class="summary-val" id="sumApp">0</span></div>
+          <div class="summary-item"><span class="summary-dot dot-shell"></span><span class="summary-name">Shell</span><span class="summary-val" id="sumShell">0</span></div>
+          <div class="summary-item"><span class="summary-dot dot-risky"></span><span class="summary-name">Risky</span><span class="summary-val" id="sumRisky">0</span></div>
+        </div>
       </div>
-      <div class="cat-bar">
-        <button class="cat-btn active" data-cat="all" onclick="switchProcCat('all')">
-          <span class="cat-label">全部</span>
-        </button>
-        <button class="cat-btn" data-cat="system" onclick="switchProcCat('system')">
-          <span class="cat-icon">🔵</span><span class="cat-label">系统</span><span class="cat-count">0</span>
-        </button>
-        <button class="cat-btn" data-cat="service" onclick="switchProcCat('service')">
-          <span class="cat-icon">🟢</span><span class="cat-label">服务</span><span class="cat-count">0</span>
-        </button>
-        <button class="cat-btn" data-cat="app" onclick="switchProcCat('app')">
-          <span class="cat-icon">🟡</span><span class="cat-label">应用</span><span class="cat-count">0</span>
-        </button>
-        <button class="cat-btn" data-cat="shell" onclick="switchProcCat('shell')">
-          <span class="cat-icon">🟠</span><span class="cat-label">调试</span><span class="cat-count">0</span>
-        </button>
-        <button class="cat-btn" data-cat="risky" onclick="switchProcCat('risky')">
-          <span class="cat-icon">🔴</span><span class="cat-label">可疑</span><span class="cat-count">0</span>
-        </button>
-      </div>
-      <div class="proc-count" id="procCount">加载中...</div>
-      <div class="event-list" id="procList">
-        <div class="loading">加载中...</div>
-      </div>
-    </div>
 
-    <!-- 告警面板 -->
-    <div class="panel" id="panel-alerts">
-      <div class="panel-toolbar">
-        <span class="alert-summary" id="alertSummary">暂无告警</span>
-      </div>
-      <div class="event-list" id="alertList">
-        <div class="empty-state">
-          <span class="empty-icon">✅</span>
-          <p>未检测到可疑进程</p>
+      <div class="section-block">
+        <div class="section-header">
+          <span class="section-label">Power</span>
+        </div>
+        <div class="power-mini" id="overviewPower">
+          <div class="power-mini-level"><span class="power-mini-num" id="miniBatt">--</span><span class="power-mini-pct">%</span></div>
+          <div class="power-mini-status" id="miniBattStatus">--</div>
         </div>
       </div>
     </div>
 
-    <!-- 历史面板 -->
-    <div class="panel" id="panel-history">
-      <div class="panel-toolbar">
-        <input type="text" class="search-input" id="searchInput" placeholder="搜索进程名或PID..." oninput="filterHistory()">
+    <div class="page" id="page-procs">
+      <div class="page-title">Processes</div>
+      <div class="page-toolbar">
+        <input type="text" class="search-input" id="procSearchInput" placeholder="Search name, PID, cmdline..." oninput="filterProcs()">
+        <button class="btn-sm" onclick="fetchProcs()">REFRESH</button>
+      </div>
+      <div class="cat-bar">
+        <button class="cat-btn active" data-cat="all" onclick="switchProcCat('all')"><span class="cat-label">All</span></button>
+        <button class="cat-btn" data-cat="system" onclick="switchProcCat('system')"><span class="cat-label">System</span><span class="cat-count">0</span></button>
+        <button class="cat-btn" data-cat="service" onclick="switchProcCat('service')"><span class="cat-label">Svc</span><span class="cat-count">0</span></button>
+        <button class="cat-btn" data-cat="app" onclick="switchProcCat('app')"><span class="cat-label">App</span><span class="cat-count">0</span></button>
+        <button class="cat-btn" data-cat="shell" onclick="switchProcCat('shell')"><span class="cat-label">Shell</span><span class="cat-count">0</span></button>
+        <button class="cat-btn" data-cat="risky" onclick="switchProcCat('risky')"><span class="cat-label">Risky</span><span class="cat-count">0</span></button>
+      </div>
+      <div class="proc-count" id="procCount">Loading...</div>
+      <div class="event-list" id="procList">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <div class="page" id="page-alerts">
+      <div class="page-title">Alerts</div>
+      <div class="alert-bar" id="alertSummary">No alerts</div>
+      <div class="event-list" id="alertList">
+        <div class="empty-state">
+          <span class="empty-icon">▪</span>
+          <p>All clear — no suspicious processes</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-log">
+      <div class="page-title">Event Log</div>
+      <div class="page-toolbar">
+        <input type="text" class="search-input" id="searchInput" placeholder="Search..." oninput="filterHistory()">
         <select class="filter-select" id="filterType" onchange="filterHistory()">
-          <option value="all">全部</option>
-          <option value="exec">新进程</option>
-          <option value="exit">退出</option>
-          <option value="alert">告警</option>
+          <option value="all">All</option>
+          <option value="exec">Created</option>
+          <option value="exit">Exited</option>
+          <option value="alert">Alert</option>
         </select>
-        <button class="btn-sm" onclick="manualScan()">🔄</button>
+        <button class="btn-sm" onclick="manualScan()">SCAN</button>
       </div>
       <div class="event-list" id="historyList">
-        <div class="loading">加载中...</div>
+        <div class="loading">Loading...</div>
       </div>
     </div>
 
-    <!-- 充电信息面板 -->
-    <div class="panel" id="panel-charging">
+    <div class="page" id="page-power">
+      <div class="page-title">Power</div>
       <div class="charging-overview" id="chargingOverview">
-        <div class="loading">加载中...</div>
+        <div class="loading">Loading...</div>
       </div>
       <div class="charging-details" id="chargingDetails"></div>
-      <div class="charging-supplies" id="chargingSupplies">
-        <div class="section-title">🔌 检测到的电源设备</div>
-      </div>
+      <div class="charging-supplies" id="chargingSupplies"></div>
     </div>
+
+    <!-- 底部导航 -->
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-page="overview" onclick="switchPage('overview')">
+        <span class="nav-icon">▪</span>
+        <span class="nav-label">OVERVIEW</span>
+      </button>
+      <button class="nav-btn" data-page="procs" onclick="switchPage('procs')">
+        <span class="nav-icon">▪</span>
+        <span class="nav-label">PROCS</span>
+        <span class="nav-badge" id="navProcBadge" style="display:none">0</span>
+      </button>
+      <button class="nav-btn" data-page="alerts" onclick="switchPage('alerts')">
+        <span class="nav-icon">▪</span>
+        <span class="nav-label">ALERTS</span>
+        <span class="nav-badge" id="navAlertBadge" style="display:none">0</span>
+      </button>
+      <button class="nav-btn" data-page="log" onclick="switchPage('log')">
+        <span class="nav-icon">▪</span>
+        <span class="nav-label">LOG</span>
+      </button>
+      <button class="nav-btn" data-page="power" onclick="switchPage('power')">
+        <span class="nav-icon">▪</span>
+        <span class="nav-label">POWER</span>
+      </button>
+    </nav>
   </div>
 
-  <!-- 事件详情浮层 -->
+  <!-- 详情浮层 -->
   <div class="modal-overlay" id="modalOverlay" onclick="closeModal()">
     <div class="modal" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <h3 id="modalTitle">事件详情</h3>
+        <h3 id="modalTitle">Detail</h3>
         <button class="modal-close" onclick="closeModal()">✕</button>
       </div>
       <div class="modal-body" id="modalBody"></div>
