@@ -31,6 +31,8 @@ static ANativeWindow* g_win = nullptr;
 // ====== 数据 ======
 struct OverlayData {
     double cpu_total = 0;
+    double cpu_cores[8] = {};  // 8核心
+    int cpu_core_count = 0;
     double gpu_pct = -1;
     double power_mw = 0;
     int bat_level = -1;
@@ -38,6 +40,7 @@ struct OverlayData {
     char fg_app[128] = {};
     double fg_cpu = 0;
     int fg_mem = 0;
+    int fps = 0;  // 本地计算
 };
 static OverlayData g_data;
 static pthread_mutex_t g_data_mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -55,6 +58,14 @@ static void jstr(const char* j, const char* k, char* o, int sz) {
     const char* e=strchr(p,'\"'); if(!e) return;
     int l=(int)(e-p); if(l>=sz) l=sz-1;
     memcpy(o,p,l); o[l]=0;
+}
+static int jarr(const char* j, const char* key, double* out, int max) {
+    char n[64]; snprintf(n,sizeof(n),"\"%s\"",key);
+    const char* p=strstr(j,n); if(!p) return 0;
+    p=strchr(p,'['); if(!p) return 0; p++;
+    int cnt=0;
+    while(cnt<max&&*p&&*p!=']'){while(*p==' '||*p==',')p++;out[cnt++]=atof(p);while(*p&&*p!=','&&*p!=']')p++;}
+    return cnt;
 }
 static std::string http_post(const char* host, int port, const char* path) {
     std::string r; int fd=socket(AF_INET,SOCK_STREAM,0); if(fd<0) return r;
@@ -83,6 +94,13 @@ static void fetch_data() {
     g_data.bat_temp=(int)jnum(c,"bat_temp"); g_data.fg_cpu=jnum(c,"fg_cpu");
     g_data.fg_mem=(int)jnum(c,"fg_mem");
     jstr(c,"fg_app",g_data.fg_app,128);
+    g_data.cpu_core_count=jarr(c,"cpu_cores",g_data.cpu_cores,8);
+    // FPS 计算
+    static struct timespec last_fps_ts={0,0}; static int frame_cnt=0;
+    struct timespec now; clock_gettime(CLOCK_MONOTONIC,&now);
+    frame_cnt++;
+    double elapsed=(now.tv_sec-last_fps_ts.tv_sec)+(now.tv_nsec-last_fps_ts.tv_nsec)/1e9;
+    if(elapsed>=1.0){g_data.fps=(int)(frame_cnt/elapsed);frame_cnt=0;last_fps_ts=now;}
     pthread_mutex_unlock(&g_data_mtx);
 }
 static void* data_thread(void*){while(g_running){fetch_data();usleep(2000000);}return nullptr;}
@@ -293,12 +311,12 @@ static void* touch_thread(void*) {
                     if(tid>=0){LOGI("MISSED UP! old_tid=%d force reset",tid);touching=false;dragging=false;}
                     float sx=cx*g_scale_x, sy=cy*g_scale_y;
                     int ww=g_screen_w*0.45f;
-                    int padding=ww*0.05f;
-                    int font_scale=ww/140;
+                    int padding=ww*0.03f;
+                    int font_scale=ww/120;
                     if(font_scale<2)font_scale=2;
-                    int line_h=8*font_scale;
-                    int wh=padding*2+line_h*6+8*font_scale;
-                    int hit_pad=20; // 触摸区域比渲染大20px
+                    int big_fs=font_scale*3;
+                    int wh=padding*3+16*big_fs+4*font_scale;
+                    int hit_pad=20;
                     bool inside=(sx>=g_win_x-hit_pad && sx<=g_win_x+ww+hit_pad && sy>=g_win_y-hit_pad && sy<=g_win_y+wh+hit_pad);
                     LOGI("TOUCH DOWN raw(%d,%d) screen(%.0f,%.0f) win(%.0f,%.0f %dx%d) inside=%d",
                          cx,cy,sx,sy,g_win_x,g_win_y,ww,wh,inside?1:0);
@@ -326,10 +344,10 @@ static void* touch_thread(void*) {
             if(g_skip_first_syn){g_skip_first_syn=false;g_last_sx=sx;g_last_sy=sy;LOGI("SKIP first SYN");continue;}
             // 检查手指是否还在窗口区域内（含外扩padding）
             int ww=g_screen_w*0.45f;
-            int padding=ww*0.05f;
-            int font_scale=ww/140;if(font_scale<2)font_scale=2;
-            int line_h=8*font_scale;
-            int wh=padding*2+line_h*6+8*font_scale;
+            int padding=ww*0.03f;
+            int font_scale=ww/120;if(font_scale<2)font_scale=2;
+            int big_fs=font_scale*3;
+            int wh=padding*3+16*big_fs+4*font_scale;
             int hit_pad=20;
             if(!(sx>=g_win_x-hit_pad && sx<=g_win_x+ww+hit_pad && sy>=g_win_y-hit_pad && sy<=g_win_y+wh+hit_pad)){
                 LOGI("DRAG OUTSIDE -> stop dragging");
@@ -350,6 +368,22 @@ static void* touch_thread(void*) {
 }
 
 // ====== 渲染 ======
+static void draw_vbar(uint32_t* px, int stride, int w, int h,
+                      int bx, int by, int bw, int bh, float pct, uint32_t color) {
+    // 竖向柱状图：从下往上填充
+    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+    // 背景
+    fill_rounded_rect(px, stride, w, h, bx, by, bw, bh, 2, make_rgba(40,40,40,150));
+    // 填充（从底部起）
+    int fill_h = (int)(bh * pct / 100.0f);
+    if (fill_h > 1) {
+        int fy = by + bh - fill_h;
+        uint32_t bar_color = pct > 80 ? make_rgba(255,100,80,255) :
+                             pct > 50 ? make_rgba(255,215,75,255) : color;
+        fill_rounded_rect(px, stride, w, h, bx+1, fy, bw-2, fill_h, 2, bar_color);
+    }
+}
+
 static void render_frame() {
     if (!g_win) return;
     ANativeWindow_Buffer buf;
@@ -357,78 +391,98 @@ static void render_frame() {
 
     int w = buf.width, h = buf.height;
     static bool logged_buf=false; if(!logged_buf){LOGI("buf=%dx%d screen=%dx%d",w,h,g_screen_w,g_screen_h);logged_buf=true;}
-    uint32_t* pixels = (uint32_t*)buf.bits;
+    uint32_t* px = (uint32_t*)buf.bits;
     int stride = buf.stride;
+    memset(px, 0, stride * h * 4);
 
-    // 清屏（全透明）
-    memset(pixels, 0, stride * h * 4);
-
-    // 读数据
     pthread_mutex_lock(&g_data_mtx);
     OverlayData d = g_data;
     pthread_mutex_unlock(&g_data_mtx);
 
     // 窗口参数（必须和触摸线程用同一变量计算，保持一致）
     int wx = (int)g_win_x, wy = (int)g_win_y;
-    int ww = g_screen_w * 0.45f;  // 45% 屏幕宽度
-    int padding = ww * 0.05f;
-    int font_scale = ww / 140; // 字体缩放
-    if (font_scale < 2) font_scale = 2;
-    int line_h = 8 * font_scale;
-    int content_w = ww - 2 * padding;
+    int ww = g_screen_w * 0.45f;
+    int pad = ww * 0.03f;         // 内边距
+    int gap = pad / 2;            // 列间距
+    int col_w = (ww - 2*pad - 2*gap) / 3;  // 每列宽度
+    int fs = ww / 120;            // 基础字体缩放
+    if (fs < 2) fs = 2;
+    int big_fs = fs * 3;          // 大号字体
+    int lh = 8 * fs;              // 行高
+    int big_lh = 8 * big_fs;
 
-    // 计算窗口高度
-    int wh = padding * 2 + line_h * 6 + 8 * font_scale; // 6行 + padding
+    // 窗口高度：上块70% + 下块30% + padding
+    int top_h = big_lh + fs * 4;  // 大字 + 标签
+    int bot_h = lh + fs * 3;      // 小字 + 标签
+    int content_h = top_h + bot_h + pad;
+    int wh = content_h + 2 * pad;
 
-    // 背景：黑色半透明圆角矩形
-    uint32_t bg_color = make_rgba(0, 0, 0, 204); // 80% 黑
-    fill_rounded_rect(pixels, stride, w, h, wx, wy, ww, wh, ww * 0.03f, bg_color);
+    // 背景
+    fill_rounded_rect(px, stride, w, h, wx, wy, ww, wh, ww*0.03f, make_rgba(0,0,0,204));
 
-    // 内容绘制
-    int cy = wy + padding;
-    int lx = wx + padding; // 标签左对齐
+    uint32_t white = make_rgba(255,255,255,255);
+    uint32_t dim = make_rgba(180,180,180,200);
+    uint32_t accent = make_rgba(100,200,255,255);
 
-    uint32_t white = make_rgba(255, 255, 255, 255);
-    uint32_t dim = make_rgba(180, 180, 180, 200);
+    // === 左列：电量 + 电池温度 ===
+    int col1x = wx + pad;
+    // 上块 - 电量大字
+    int ty = wy + pad;
+    char bat_str[16];
+    if (d.bat_level >= 0) snprintf(bat_str, sizeof(bat_str), "%d%%", d.bat_level);
+    else snprintf(bat_str, sizeof(bat_str), "--%%");
+    uint32_t bat_color = d.bat_level > 20 ? accent : make_rgba(255,100,80,255);
+    int bw = text_width(bat_str, big_fs);
+    draw_text(px, stride, w, h, col1x + (col_w - bw)/2, ty, bat_str, bat_color, big_fs);
+    // 电量标签
+    draw_text(px, stride, w, h, col1x + (col_w - text_width("BATT",fs))/2, ty + big_lh, "BATT", dim, fs);
 
-    // CPU 行
-    draw_text(pixels, stride, w, h, lx, cy, "CPU", white, font_scale);
-    cy += line_h + font_scale * 2;
+    // 下块 - 电池温度
+    int by = wy + pad + top_h + pad;
+    char bt_str[16]; snprintf(bt_str, sizeof(bt_str), "%.1fC", d.bat_temp/10.0f);
+    uint32_t bt_color = d.bat_temp > 450 ? make_rgba(255,100,80,255) : d.bat_temp > 380 ? make_rgba(255,215,75,255) : white;
+    bw = text_width(bt_str, big_fs * 0.6f);
+    if (bw < 0) bw = text_width(bt_str, fs);
+    draw_text(px, stride, w, h, col1x + (col_w - text_width(bt_str,fs))/2, by, bt_str, bt_color, fs);
+    draw_text(px, stride, w, h, col1x + (col_w - text_width("TEMP",fs))/2, by + lh, "TEMP", dim, fs);
 
-    // GPU 行
-    draw_text(pixels, stride, w, h, lx, cy, "GPU", white, font_scale);
-    // 百分比 - 大号
-    int big_scale = font_scale * 2;
-    char gpu_str[16]; snprintf(gpu_str, sizeof(gpu_str), "%.0f%%", d.gpu_pct);
-    int gpu_w = text_width(gpu_str, big_scale);
-    int rx = wx + ww - padding - gpu_w; // 右对齐
-    uint32_t gpu_color = d.gpu_pct > 80 ? make_rgba(255,100,80,255) : d.gpu_pct > 50 ? make_rgba(255,215,75,255) : make_rgba(100,255,130,255);
-    draw_text(pixels, stride, w, h, rx, cy - font_scale/2, gpu_str, gpu_color, big_scale);
+    // === 中列：帧数 + 功率 ===
+    int col2x = wx + pad + col_w + gap;
+    // 上块 - FPS
+    ty = wy + pad;
+    char fps_str[16]; snprintf(fps_str, sizeof(fps_str), "%d", d.fps);
+    uint32_t fps_color = d.fps >= 25 ? make_rgba(100,255,130,255) : d.fps >= 15 ? make_rgba(255,215,75,255) : make_rgba(255,100,80,255);
+    bw = text_width(fps_str, big_fs);
+    draw_text(px, stride, w, h, col2x + (col_w - bw)/2, ty, fps_str, fps_color, big_fs);
+    draw_text(px, stride, w, h, col2x + (col_w - text_width("FPS",fs))/2, ty + big_lh, "FPS", dim, fs);
 
-    // 进度条
-    cy += line_h + font_scale * 2;
-    int bar_x = lx, bar_y = cy;
-    int bar_w = content_w, bar_h = font_scale * 2;
-    fill_rounded_rect(pixels, stride, w, h, bar_x, bar_y, bar_w, bar_h, bar_h/2, make_rgba(50,50,50,180));
-    int fill = (int)((d.gpu_pct / 100.0f) * bar_w);
-    if (fill > 2) fill_rounded_rect(pixels, stride, w, h, bar_x, bar_y, fill, bar_h, bar_h/2, gpu_color);
-    cy += bar_h + font_scale * 3;
+    // 下块 - 功率
+    by = wy + pad + top_h + pad;
+    char pwr_str[16];
+    if (d.power_mw >= 1000) snprintf(pwr_str, sizeof(pwr_str), "%.1fW", d.power_mw/1000.0);
+    else snprintf(pwr_str, sizeof(pwr_str), "%.0fmW", d.power_mw);
+    uint32_t pwr_color = d.power_mw > 5000 ? make_rgba(255,100,80,255) : d.power_mw > 2000 ? make_rgba(255,215,75,255) : white;
+    draw_text(px, stride, w, h, col2x + (col_w - text_width(pwr_str,fs))/2, by, pwr_str, pwr_color, fs);
+    draw_text(px, stride, w, h, col2x + (col_w - text_width("POWER",fs))/2, by + lh, "POWER", dim, fs);
 
-    // 频率行 - 大号
-    float cpu_freq = 300 + (2438 - 300) * (d.cpu_total / 100.0);
-    if (cpu_freq >= 1000) {
-        char freq_str[32]; snprintf(freq_str, sizeof(freq_str), "%.0fMHz", cpu_freq);
-        draw_text(pixels, stride, w, h, lx, cy, freq_str, white, big_scale);
-    } else {
-        draw_text(pixels, stride, w, h, lx, cy, "0MHz", dim, big_scale);
+    // === 右列：CPU 8核心柱状图 + CPU温度 ===
+    int col3x = wx + pad + (col_w + gap) * 2;
+    // 上块 - 8个竖向柱状图
+    ty = wy + pad;
+    int bar_gap = 3;
+    int bar_w = (col_w - bar_gap * 7) / 8;  // 8根柱子
+    int bar_h = top_h - fs * 2;
+    for (int i = 0; i < 8 && i < d.cpu_core_count; i++) {
+        int bx = col3x + i * (bar_w + bar_gap);
+        draw_vbar(px, stride, w, h, bx, ty + fs, bar_w, bar_h, d.cpu_cores[i], accent);
     }
-    cy += line_h * 2 + font_scale * 2;
+    draw_text(px, stride, w, h, col3x + (col_w - text_width("CPU",fs))/2, ty + fs + bar_h, "CPU", dim, fs);
 
-    // 温度行
-    float temp = d.bat_temp / 10.0f;
-    char temp_str[32]; snprintf(temp_str, sizeof(temp_str), "%.1fC", temp);
-    uint32_t temp_color = temp > 45 ? make_rgba(255,100,80,255) : temp > 38 ? make_rgba(255,215,75,255) : white;
-    draw_text(pixels, stride, w, h, lx, cy, temp_str, temp_color, font_scale);
+    // 下块 - CPU 温度（用电池温度近似，或如果有cpu_temp可以用）
+    by = wy + pad + top_h + pad;
+    char ct_str[16]; snprintf(ct_str, sizeof(ct_str), "%.0f%%", d.cpu_total);
+    draw_text(px, stride, w, h, col3x + (col_w - text_width(ct_str,fs))/2, by, ct_str, white, fs);
+    draw_text(px, stride, w, h, col3x + (col_w - text_width("USAGE",fs))/2, by + lh, "USAGE", dim, fs);
 
     ANativeWindow_unlockAndPost(g_win);
 }
