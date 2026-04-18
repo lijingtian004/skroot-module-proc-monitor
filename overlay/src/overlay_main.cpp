@@ -324,6 +324,17 @@ static void* touch_thread(void*) {
         if(e.type==EV_SYN&&e.code==SYN_REPORT&&touching&&dragging){
             float sx=cx*g_scale_x, sy=cy*g_scale_y;
             if(g_skip_first_syn){g_skip_first_syn=false;g_last_sx=sx;g_last_sy=sy;LOGI("SKIP first SYN");continue;}
+            // 检查手指是否还在窗口区域内（含外扩padding）
+            int ww=g_screen_w*0.45f;
+            int padding=ww*0.05f;
+            int font_scale=ww/140;if(font_scale<2)font_scale=2;
+            int line_h=8*font_scale;
+            int wh=padding*2+line_h*6+8*font_scale;
+            int hit_pad=20;
+            if(!(sx>=g_win_x-hit_pad && sx<=g_win_x+ww+hit_pad && sy>=g_win_y-hit_pad && sy<=g_win_y+wh+hit_pad)){
+                LOGI("DRAG OUTSIDE -> stop dragging");
+                dragging=false;continue;
+            }
             float old_x=g_win_x, old_y=g_win_y;
             // 增量拖动：只移动差值，窗口不跳
             g_win_x += sx - g_last_sx;
