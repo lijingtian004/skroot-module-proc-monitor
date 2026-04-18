@@ -324,6 +324,7 @@ static void render_frame() {
     if (ANativeWindow_lock(g_win, &buf, nullptr) != 0) return;
 
     int w = buf.width, h = buf.height;
+    static bool logged_buf=false; if(!logged_buf){LOGI("buf=%dx%d screen=%dx%d",w,h,g_screen_w,g_screen_h);logged_buf=true;}
     uint32_t* pixels = (uint32_t*)buf.bits;
     int stride = buf.stride;
 
@@ -335,9 +336,9 @@ static void render_frame() {
     OverlayData d = g_data;
     pthread_mutex_unlock(&g_data_mtx);
 
-    // 窗口参数
+    // 窗口参数（必须和触摸线程用同一变量计算，保持一致）
     int wx = (int)g_win_x, wy = (int)g_win_y;
-    int ww = w * 0.45f;  // 45% 屏幕宽度
+    int ww = g_screen_w * 0.45f;  // 45% 屏幕宽度
     int padding = ww * 0.05f;
     int font_scale = ww / 140; // 字体缩放
     if (font_scale < 2) font_scale = 2;
