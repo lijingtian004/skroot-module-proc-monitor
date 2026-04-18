@@ -183,17 +183,17 @@ public:
 
         // Get display token
         if (F.systemVersion >= 14) {
-            if (F.SurfaceComposerClient__GetPhysicalDisplayIds) {
-                auto ids = F.SurfaceComposerClient__GetPhysicalDisplayIds();
-                if (!ids.empty() && F.SurfaceComposerClient__GetPhysicalDisplayToken) {
-                    display = F.SurfaceComposerClient__GetPhysicalDisplayToken(ids[0]);
-                }
-            }
-            // Fallback for A15 where GetPhysicalDisplayToken may crash
-            if (!display.get() && F.systemVersion >= 15) {
-                LOGI("A15: display token unavailable, using defaults 1080x2400");
+            // Android 15: skip GetPhysicalDisplayToken (ABI incompatible), use defaults
+            if (F.systemVersion >= 15) {
+                LOGI("A15: skip GetPhysicalDisplayToken, using defaults 1080x2400");
                 info.width = 1080; info.height = 2400; info.orientation = 0;
                 return info;
+            }
+            if (F.SurfaceComposerClient__GetPhysicalDisplayIds && F.SurfaceComposerClient__GetPhysicalDisplayToken) {
+                auto ids = F.SurfaceComposerClient__GetPhysicalDisplayIds();
+                if (!ids.empty()) {
+                    display = F.SurfaceComposerClient__GetPhysicalDisplayToken(ids[0]);
+                }
             }
         } else if (F.systemVersion >= 10 && F.SurfaceComposerClient__GetInternalDisplayToken) {
             display = F.SurfaceComposerClient__GetInternalDisplayToken();
