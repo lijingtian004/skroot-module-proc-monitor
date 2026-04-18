@@ -31,7 +31,7 @@ static void sig_handler(int sig, siginfo_t* info, void* ctx) {
 
 static int g_port = 10273;
 static int g_fps = 60;
-static volatile bool g_running = true;
+static bool g_running = true;
 static int g_screen_w = 1080, g_screen_h = 2400;
 static int g_orientation = 0;
 static float g_scale_x = 1.0f, g_scale_y = 1.0f;
