@@ -48,6 +48,8 @@ namespace detail {
         int32_t (*SurfaceComposerClient__init)(void*) = nullptr;
         void (*LayerMetadata__ctor)(void*) = nullptr;
         void (*LayerMetadata__dtor)(void*) = nullptr;
+        sp<void> (*ComposerServiceAIDL__getComposerService)() = nullptr;
+        void (*SCC_ctor_ISurfaceComposer)(void*, void*) = nullptr;
         sp<void> (*SurfaceComposerClient__GetInternalDisplayToken)() = nullptr;
         std::vector<uint64_t> (*SurfaceComposerClient__GetPhysicalDisplayIds)() = nullptr;
         sp<void> (*SurfaceComposerClient__GetPhysicalDisplayToken)(uint64_t) = nullptr;
@@ -128,11 +130,27 @@ namespace detail {
             // Try ComposerService for getting ISurfaceComposer
             auto composer_service = (sp<void>(*)())dlsym(libgui, "_ZN7android14ComposerService17getComposerServiceEv");
             LOGI("dlsym ComposerService::getComposerService: %p", (void*)composer_service);
-            // Try to find it in libutils too
             if (!composer_service) {
                 composer_service = (sp<void>(*)())dlsym(dlopen("/system/lib64/libutils.so", RTLD_LAZY), "_ZN7android14ComposerService17getComposerServiceEv");
                 LOGI("dlsym ComposerService (libutils): %p", (void*)composer_service);
             }
+            // Android 15 may use ComposerServiceAIDL instead
+            ComposerServiceAIDL__getComposerService = (sp<void>(*)())dlsym(libgui, "_ZN7android22ComposerServiceAIDL17getComposerServiceEv");
+            LOGI("dlsym ComposerServiceAIDL::getComposerService: %p", (void*)ComposerServiceAIDL__getComposerService);
+            if (!ComposerServiceAIDL__getComposerService) {
+                ComposerServiceAIDL__getComposerService = (sp<void>(*)())dlsym(dlopen("/system/lib64/libutils.so", RTLD_LAZY), "_ZN7android22ComposerServiceAIDL17getComposerServiceEv");
+                LOGI("dlsym ComposerServiceAIDL (libutils): %p", (void*)ComposerServiceAIDL__getComposerService);
+            }
+            // Also try SurfaceComposerClient constructor with ISurfaceComposer param
+            SCC_ctor_ISurfaceComposer = (void(*)(void*, void*))dlsym(libgui, "_ZN7android21SurfaceComposerClientC1ERKNS_2spINS_16ISurfaceComposerEEE");
+            LOGI("dlsym SCC C1(ISurfaceComposer): %p", (void*)SCC_ctor_ISurfaceComposer);
+            if (!SCC_ctor_ISurfaceComposer) {
+                SCC_ctor_ISurfaceComposer = (void(*)(void*, void*))dlsym(libgui, "_ZN7android21SurfaceComposerClientC2ERKNS_2spINS_16ISurfaceComposerEEE");
+                LOGI("dlsym SCC C2(ISurfaceComposer): %p", (void*)SCC_ctor_ISurfaceComposer);
+            }
+            // Also try createConnection static method
+            auto create_conn = (sp<void>(*)())dlsym(libgui, "_ZN7android21SurfaceComposerClient18createConnectionEv");
+            LOGI("dlsym SCC::createConnection static: %p", (void*)create_conn);
 
             // Try to find init/connect methods for SurfaceComposerClient
             const char* init_names[] = {
@@ -314,12 +332,29 @@ public:
 
         // Allocate SurfaceComposerClient on stack (constructor writes into it)
         char scc_buf[256] = {0};
-        if (F.SurfaceComposerClient__Constructor_Ptr) {
+        bool scc_initialized = false;
+
+        // Android 15: try ComposerServiceAIDL + parametrized constructor
+        if (F.ComposerServiceAIDL__getComposerService && F.SCC_ctor_ISurfaceComposer) {
+            LOGI("Create: trying ComposerServiceAIDL::getComposerService...");
+            auto sf = F.ComposerServiceAIDL__getComposerService();
+            LOGI("Create: getComposerService returned ptr=%p", sf.get());
+            if (sf.get()) {
+                LOGI("Create: calling SCC ctor with ISurfaceComposer...");
+                F.SCC_ctor_ISurfaceComposer(scc_buf, &sf);
+                scc_initialized = true;
+                LOGI("Create: SCC ctor with ISurfaceComposer done");
+            }
+        }
+
+        // Fallback: default constructor
+        if (!scc_initialized && F.SurfaceComposerClient__Constructor_Ptr) {
             LOGI("Create: calling SurfaceComposerClient constructor...");
             F.SurfaceComposerClient__Constructor_Ptr(scc_buf);
+            scc_initialized = true;
             LOGI("Create: constructor done");
-        } else {
-            LOGE("Create: Constructor_Ptr is NULL!");
+        } else if (!scc_initialized) {
+            LOGE("Create: no SCC constructor available!");
         }
 
         // Call init() if available (required on newer Android)
