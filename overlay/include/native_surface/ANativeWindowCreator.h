@@ -144,9 +144,9 @@ namespace detail {
                     ComposerServiceAIDL__getComposerService = csf;
                 }
                 // Also try init methods
-                for (int i = 0; init_names[i]; i++) {
-                    auto fn = dlsym(libsf, init_names[i]);
-                    LOGI("dlsym init[%d] in libsurfaceflinger (%s): %p", i, init_names[i], fn);
+                for (int i = 0; scc_init_names[i]; i++) {
+                    auto fn = dlsym(libsf, scc_init_names[i]);
+                    LOGI("dlsym init[%d] in libsurfaceflinger (%s): %p", i, scc_init_names[i], fn);
                     if (fn && !SurfaceComposerClient__init) {
                         SurfaceComposerClient__init = (int32_t(*)(void*))fn;
                     }
@@ -176,7 +176,7 @@ namespace detail {
             LOGI("dlsym SCC::createConnection static: %p", (void*)create_conn);
 
             // Try to find init/connect methods for SurfaceComposerClient
-            const char* init_names[] = {
+            const char* scc_init_names[] = {
                 "_ZN7android21SurfaceComposerClient4initEv",
                 "_ZN7android21SurfaceComposerClient7connectEv",
                 "_ZN7android21SurfaceComposerClient18createConnectionEv",
@@ -184,9 +184,9 @@ namespace detail {
                 "_ZN7android21SurfaceComposerClient4initERKNS_2spINS_22ISurfaceFlingerClientEEE",
                 nullptr
             };
-            for (int i = 0; init_names[i]; i++) {
-                auto fn = dlsym(libgui, init_names[i]);
-                LOGI("dlsym init[%d] (%s): %p", i, init_names[i], fn);
+            for (int i = 0; scc_init_names[i]; i++) {
+                auto fn = dlsym(libgui, scc_init_names[i]);
+                LOGI("dlsym init[%d] (%s): %p", i, scc_init_names[i], fn);
                 if (fn && !SurfaceComposerClient__init) {
                     SurfaceComposerClient__init = (int32_t(*)(void*))fn;
                 }
@@ -194,9 +194,9 @@ namespace detail {
 
             // Also try init/connect in other libs
             auto libandroid = dlopen("/system/lib64/libandroid_runtime.so", RTLD_LAZY);
-            for (int i = 0; init_names[i]; i++) {
-                auto fn = dlsym(libandroid, init_names[i]);
-                LOGI("dlsym init[%d] in libandroid_runtime (%s): %p", i, init_names[i], fn);
+            for (int i = 0; scc_init_names[i]; i++) {
+                auto fn = dlsym(libandroid, scc_init_names[i]);
+                LOGI("dlsym init[%d] in libandroid_runtime (%s): %p", i, scc_init_names[i], fn);
                 if (fn && !SurfaceComposerClient__init) {
                     SurfaceComposerClient__init = (int32_t(*)(void*))fn;
                 }
