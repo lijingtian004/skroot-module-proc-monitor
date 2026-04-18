@@ -170,21 +170,23 @@ static void DrawUI() {
     ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
     g_win_x = wp.x; g_win_y = wp.y; g_win_w = ws.x; g_win_h = ws.y;
 
-    // ---- 拖拽：整个窗口区域可拖动 ----
-    ImGui::SetCursorPos(ImVec2(0, 0));
-    ImGui::InvisibleButton("##drag", ws);
-    if (ImGui::IsItemActive()) {
-        if (!g_dragging) { g_dragging = true; g_drag_offset = ImVec2(io.MousePos.x - wp.x, io.MousePos.y - wp.y); }
+    // ---- 手动拖动：触摸窗口区域内才生效 ----
+    bool mouse_in_win = (io.MousePos.x >= wp.x && io.MousePos.x <= wp.x+ws.x &&
+                         io.MousePos.y >= wp.y && io.MousePos.y <= wp.y+ws.y);
+    if (io.MouseDown[0] && mouse_in_win) {
+        if (!g_dragging) {
+            g_dragging = true;
+            g_drag_offset = ImVec2(io.MousePos.x - wp.x, io.MousePos.y - wp.y);
+        }
         ImGui::SetWindowPos(ImVec2(io.MousePos.x - g_drag_offset.x, io.MousePos.y - g_drag_offset.y));
-    } else { g_dragging = false; }
-    // 鼠标悬停时显示可拖动光标
-    if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    } else {
+        g_dragging = false;
+    }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float lh = ImGui::GetTextLineHeight();
 
     // ---- CPU 行 ----
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + sw * 0.005f); // 下移避免被 InvisibleButton 盖住
     ImGui::TextColored(ImVec4(1, 1, 1, 0.95f), "CPU");
     ImGui::Spacing();
 
