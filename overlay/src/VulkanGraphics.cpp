@@ -37,7 +37,7 @@ bool VulkanGraphics::Init(ANativeWindow* window, int width, int height) {
     void* libvulkan = dlopen("libvulkan.so", RTLD_NOW);
     if (!libvulkan) { fprintf(stderr, "Failed to load libvulkan.so\n"); return false; }
 
-    ImGui_ImplVulkan_LoadFunctions(0, [](const char* name, void* handle) -> PFN_vkVoidFunction {
+    ImGui_ImplVulkan_LoadFunctions([](const char* name, void* handle) -> PFN_vkVoidFunction {
         return (PFN_vkVoidFunction)dlsym(handle, name);
     }, libvulkan);
 
