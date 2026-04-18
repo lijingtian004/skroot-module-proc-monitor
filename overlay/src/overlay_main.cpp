@@ -270,19 +270,33 @@ static void* touch_thread(void*) {
     sleep(2); g_touch_fd=findTouch();
     if(g_touch_fd<0){LOGE("no touch");return nullptr;}
     LOGI("touch fd=%d",g_touch_fd);
-    struct input_event evs[64];int cx=0,cy=0,tid=-1;bool touching=false;
+    struct input_event evs[64];int cx=0,cy=0,tid=-1;
+    bool touching=false,dragging=false;
     while(g_running){ssize_t n=read(g_touch_fd,evs,sizeof(evs));
     if(n<=0){usleep(8000);continue;}size_t cnt=n/sizeof(struct input_event);
     for(size_t i=0;i<cnt;i++){auto& e=evs[i];
         if(e.type==EV_ABS){if(e.code==ABS_MT_POSITION_X)cx=e.value;
         else if(e.code==ABS_MT_POSITION_Y)cy=e.value;
         else if(e.code==ABS_MT_TRACKING_ID){
-            if(e.value>=0&&tid<0){touching=true;g_drag_ox=cx*g_scale_x-g_win_x;g_drag_oy=cy*g_scale_y-g_win_y;}
-            else if(e.value<0&&tid>=0){touching=false;}
+            if(e.value>=0&&tid<0){
+                // 按下：检查是否在窗口区域内
+                float sx=cx*g_scale_x, sy=cy*g_scale_y;
+                int ww=g_screen_w*0.45f;
+                int wh=ww*0.5f; // 近似窗口高度
+                if(sx>=g_win_x && sx<=g_win_x+ww && sy>=g_win_y && sy<=g_win_y+wh){
+                    dragging=true;
+                    g_drag_ox=sx-g_win_x;
+                    g_drag_oy=sy-g_win_y;
+                } else {
+                    dragging=false;
+                }
+                touching=true;
+            }
+            else if(e.value<0&&tid>=0){touching=false;dragging=false;}
             tid=e.value;}}
-        if(e.type==EV_SYN&&e.code==SYN_REPORT&&touching){
-            g_win_x=cx*g_scale_x-g_drag_ox; g_win_y=cy*g_scale_y-g_drag_oy;
-            // clamp
+        if(e.type==EV_SYN&&e.code==SYN_REPORT&&touching&&dragging){
+            float sx=cx*g_scale_x, sy=cy*g_scale_y;
+            g_win_x=sx-g_drag_ox; g_win_y=sy-g_drag_oy;
             if(g_win_x<0)g_win_x=0; if(g_win_y<0)g_win_y=0;
             if(g_win_x>g_screen_w-200)g_win_x=g_screen_w-200;
             if(g_win_y>g_screen_h-100)g_win_y=g_screen_h-100;
