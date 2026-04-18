@@ -215,11 +215,54 @@ static bool is_overlay_running() {
     return false;
 }
 
-static void start_overlay(const char* module_dir) {
+static void start_overlay() {
     if (is_overlay_running()) {
         printf("[overlay] already running pid=%d\n", g_overlay_pid);
         return;
     }
+
+    // 从 /proc/self/maps 找到模块 .so 的路径，推导出模块目录
+    char module_dir[512] = {0};
+    FILE* maps = fopen("/proc/self/maps", "r");
+    if (maps) {
+        char line[1024];
+        while (fgets(line, sizeof(line), maps)) {
+            char* p = strstr(line, "libmodule_proc_monitor.so");
+            if (p) {
+                // 找到路径（从行首到 .so）
+                char* start = strrchr(line, '/');
+                if (start) {
+                    int len = (int)(start - line);
+                    if (len > 0 && len < (int)sizeof(module_dir)) {
+                        strncpy(module_dir, line, len);
+                        module_dir[len] = 0;
+                        // 去掉行首的地址部分，找到实际路径
+                        char* path_start = strchr(line, '/');
+                        if (path_start) {
+                            len = (int)(start - path_start);
+                            if (len < (int)sizeof(module_dir)) {
+                                strncpy(module_dir, path_start, len);
+                                module_dir[len] = 0;
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        fclose(maps);
+    }
+
+    // fallback: 也尝试 g_module_dir
+    if (!module_dir[0] && !g_module_dir.empty()) {
+        strncpy(module_dir, g_module_dir.c_str(), sizeof(module_dir) - 1);
+    }
+
+    if (!module_dir[0]) {
+        printf("[overlay] cannot determine module directory\n");
+        return;
+    }
+
     char bin_path[512];
     snprintf(bin_path, sizeof(bin_path), "%s/skroot_overlay", module_dir);
 
@@ -239,7 +282,7 @@ static void start_overlay(const char* module_dir) {
         _exit(1);
     } else if (pid > 0) {
         g_overlay_pid = pid;
-        printf("[overlay] started pid=%d\n", pid);
+        printf("[overlay] started pid=%d from %s\n", pid, bin_path);
     }
 }
 
@@ -464,7 +507,7 @@ public:
 
         if (path == "/api/overlay-toggle") {
             if (body == "start") {
-                start_overlay(g_module_dir.c_str());
+                start_overlay();
             } else if (body == "stop") {
                 stop_overlay();
             }
