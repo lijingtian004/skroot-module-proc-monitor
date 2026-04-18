@@ -83,20 +83,21 @@ namespace detail {
 
             // libutils symbols
             RefBase__IncStrong = (decltype(RefBase__IncStrong))dlsym(libutils, "_ZNK7android7RefBase9incStrongEPKv");
+            LOGI("dlsym RefBase::IncStrong: %p %s", (void*)RefBase__IncStrong, dlerror());
             RefBase__DecStrong = (decltype(RefBase__DecStrong))dlsym(libutils, "_ZNK7android7RefBase9decStrongEPKv");
+            LOGI("dlsym RefBase::DecStrong: %p %s", (void*)RefBase__DecStrong, dlerror());
             String8__Constructor = (decltype(String8__Constructor))dlsym(libutils, "_ZN7android7String8C2EPKc");
+            LOGI("dlsym String8::Ctor: %p %s", (void*)String8__Constructor, dlerror());
             String8__Destructor = (decltype(String8__Destructor))dlsym(libutils, "_ZN7android7String8D2Ev");
-            LOGI("dlsym RefBase::IncStrong: %p DecStrong: %p String8::Ctor: %p Dtor: %p",
-                 (void*)RefBase__IncStrong, (void*)RefBase__DecStrong,
-                 (void*)String8__Constructor, (void*)String8__Destructor);
+            LOGI("dlsym String8::Dtor: %p %s", (void*)String8__Destructor, dlerror());
 
             // SurfaceComposerClient constructor (C2 for base, works fine)
             SurfaceComposerClient__Constructor = (decltype(SurfaceComposerClient__Constructor))dlsym(libgui, "_ZN7android21SurfaceComposerClientC2Ev");
-            LOGI("dlsym SCC::C2: %p", (void*)SurfaceComposerClient__Constructor);
+            LOGI("dlsym SCC::C2: %p %s", (void*)SurfaceComposerClient__Constructor, dlerror());
 
-            // getDefault() - returns pre-initialized SCC instance (Android 15 关键!)
+            // getDefault() - returns pre-initialized SCC instance
             SCC_getDefault = (void*(*)())dlsym(libgui, "_ZN7android21SurfaceComposerClient10getDefaultEv");
-            LOGI("dlsym SCC::getDefault: %p", (void*)SCC_getDefault);
+            LOGI("dlsym SCC::getDefault: %p %s", (void*)SCC_getDefault, dlerror());
 
             // createSurface - Android 14+ uses gui::LayerMetadata
             if (systemVersion >= 14) {
@@ -231,149 +232,144 @@ public:
     }
 
     static ANativeWindow* Create(const char* name, int32_t width = -1, int32_t height = -1) {
+        // 直接写 stderr（已 dup2 到日志文件），不依赖 LOGI 宏
+        fprintf(stderr, "[Create-RAW] ENTER name=%s\n", name); fflush(stderr);
         auto& F = detail::Functionals::GetInstance();
-        LOGI("Create(%s) %dx%d Android %zu", name, width, height, F.systemVersion);
+        fprintf(stderr, "[Create-RAW] Functionals OK ver=%zu\n", F.systemVersion); fflush(stderr);
 
         if (width <= 0 || height <= 0) {
             auto di = GetDisplayInfo();
             width = di.width; height = di.height;
         }
+        fprintf(stderr, "[Create-RAW] display %dx%d\n", width, height); fflush(stderr);
 
         // 1. Get pre-initialized SurfaceComposerClient
-        // Try getDefault() first, fallback to parametrized constructor
         char scc_buf[4096] = {0};
         void* scc = nullptr;
 
+        fprintf(stderr, "[Create-RAW] SCC_getDefault=%p\n", (void*)F.SCC_getDefault); fflush(stderr);
         if (F.SCC_getDefault) {
-            LOGI("calling SCC::getDefault()...");
+            fprintf(stderr, "[Create-RAW] calling getDefault()...\n"); fflush(stderr);
             scc = F.SCC_getDefault();
-            LOGI("getDefault returned: %p", scc);
+            fprintf(stderr, "[Create-RAW] getDefault => %p\n", scc); fflush(stderr);
         }
 
-        // Fallback: use parametrized constructor with null ISurfaceComposerClient
         if (!scc) {
-            LOGI("getDefault unavailable/null, trying parametrized constructor...");
-            // Look for constructor with ISurfaceComposerClient param
+            fprintf(stderr, "[Create-RAW] getDefault null, trying fallback...\n"); fflush(stderr);
             auto scc_ctor_param = (void(*)(void*, void*))dlsym(dlopen("/system/lib64/libgui.so", RTLD_LAZY),
                 "_ZN7android21SurfaceComposerClientC1ERKNS_2spINS_3gui22ISurfaceComposerClientEEE");
-            LOGI("dlsym SCC::C1(ISurfaceComposerClient): %p", (void*)scc_ctor_param);
+            fprintf(stderr, "[Create-RAW] C1(ISurfaceComposerClient)=%p\n", (void*)scc_ctor_param); fflush(stderr);
             if (scc_ctor_param) {
                 void* null_client = nullptr;
                 scc_ctor_param(scc_buf, &null_client);
                 scc = scc_buf;
-                LOGI("parametrized constructor done, scc=%p", scc);
+                fprintf(stderr, "[Create-RAW] param ctor done scc=%p\n", scc); fflush(stderr);
             } else if (F.SurfaceComposerClient__Constructor) {
-                // Last resort: default constructor
-                LOGI("using default C2 constructor...");
+                fprintf(stderr, "[Create-RAW] using C2 ctor=%p\n", (void*)F.SurfaceComposerClient__Constructor); fflush(stderr);
                 F.SurfaceComposerClient__Constructor(scc_buf);
                 if (F.RefBase__IncStrong) F.RefBase__IncStrong(scc_buf, scc_buf);
                 scc = scc_buf;
-                LOGI("default constructor done, scc=%p", scc);
+                fprintf(stderr, "[Create-RAW] C2 done scc=%p\n", scc); fflush(stderr);
             }
         }
 
         if (!scc) {
-            LOGE("all SCC init methods failed");
+            fprintf(stderr, "[Create-RAW] ALL SCC INIT FAILED\n"); fflush(stderr);
             return nullptr;
         }
 
-        // 2. Construct String8 for name
+        // 2. Construct String8
+        fprintf(stderr, "[Create-RAW] step 2 String8 ctor=%p\n", (void*)F.String8__Constructor); fflush(stderr);
         char name_buf[1024] = {0};
         if (F.String8__Constructor) {
-            LOGI("calling String8 constructor...");
             F.String8__Constructor(name_buf, name);
-            LOGI("String8 constructed for '%s'", name);
+            fprintf(stderr, "[Create-RAW] String8 OK\n"); fflush(stderr);
         } else {
-            LOGE("String8::Constructor is NULL, using raw pointer (may crash)");
-            // Copy name as fallback
+            fprintf(stderr, "[Create-RAW] String8 NULL, using strncpy\n"); fflush(stderr);
             strncpy(name_buf, name, sizeof(name_buf)-1);
         }
 
-        // 3. Construct LayerMetadata (1024 bytes like AndroidSurfaceImgui)
+        // 3. Construct LayerMetadata
+        fprintf(stderr, "[Create-RAW] step 3 LayerMetadata ctor=%p\n", (void*)F.LayerMetadata__ctor); fflush(stderr);
         char lm_buf[1024] = {0};
         void* lm_ptr = nullptr;
         if (F.LayerMetadata__ctor) {
             F.LayerMetadata__ctor(lm_buf);
             lm_ptr = lm_buf;
-            LOGI("LayerMetadata constructed");
+            fprintf(stderr, "[Create-RAW] LayerMetadata OK\n"); fflush(stderr);
         }
 
-        // 4. Create surface - parentHandle as void**
+        // 4. Create surface
+        fprintf(stderr, "[Create-RAW] step 4 CreateSurface=%p\n", (void*)F.SurfaceComposerClient__CreateSurface); fflush(stderr);
         static void* parentHandle = nullptr;
         parentHandle = nullptr;
 
         if (!F.SurfaceComposerClient__CreateSurface) {
-            LOGE("CreateSurface is NULL");
+            fprintf(stderr, "[Create-RAW] CreateSurface is NULL!\n"); fflush(stderr);
             if (F.String8__Destructor) F.String8__Destructor(name_buf);
             return nullptr;
         }
 
-        LOGI("calling CreateSurface...");
+        fprintf(stderr, "[Create-RAW] calling CreateSurface...\n"); fflush(stderr);
         void* surfaceControl = F.SurfaceComposerClient__CreateSurface(
             scc, name_buf, (uint32_t)width, (uint32_t)height,
             1 /*RGBA_8888*/, 0 /*flags*/,
             &parentHandle, lm_ptr, nullptr);
-        LOGI("CreateSurface returned: %p", surfaceControl);
+        fprintf(stderr, "[Create-RAW] CreateSurface => %p\n", surfaceControl); fflush(stderr);
 
-        // Clean up String8
-        if (F.String8__Destructor) {
-            F.String8__Destructor(name_buf);
-        }
+        if (F.String8__Destructor) F.String8__Destructor(name_buf);
 
         if (!surfaceControl) {
-            LOGE("CreateSurface failed");
+            fprintf(stderr, "[Create-RAW] CreateSurface FAILED\n"); fflush(stderr);
             return nullptr;
         }
 
         // 5. Get ANativeWindow from SurfaceControl
+        fprintf(stderr, "[Create-RAW] step 5 GetSurface=%p\n", (void*)F.SurfaceControl__GetSurface); fflush(stderr);
         detail::sp<void> surface;
         if (F.SurfaceControl__GetSurface) {
             surface = F.SurfaceControl__GetSurface(surfaceControl);
-            LOGI("GetSurface returned: %p", surface.get());
+            fprintf(stderr, "[Create-RAW] GetSurface => %p\n", surface.get()); fflush(stderr);
         }
 
         auto* window = reinterpret_cast<ANativeWindow*>(surface.get());
         if (!window) {
-            LOGE("GetSurface failed, window is NULL");
+            fprintf(stderr, "[Create-RAW] window is NULL\n"); fflush(stderr);
             return nullptr;
         }
 
         // 6. Apply Transaction
+        fprintf(stderr, "[Create-RAW] step 6 Transaction ctor=%p ver=%zu\n", (void*)F.Transaction__Constructor, F.systemVersion); fflush(stderr);
         if (F.systemVersion >= 11 && F.Transaction__Constructor) {
-            // Transaction 对象可能大于 1024 字节，用更大的缓冲区
             char txn_buf[4096] = {0};
             memset(txn_buf, 0, sizeof(txn_buf));
             F.Transaction__Constructor(txn_buf);
-            LOGI("Transaction constructed (buf=%p)", txn_buf);
+            fprintf(stderr, "[Create-RAW] Transaction constructed\n"); fflush(stderr);
 
             void* scPtr = surfaceControl;
-            // 设置 z-order 为 INT32_MAX，确保在所有窗口之上
             if (F.Transaction__SetLayer) {
                 F.Transaction__SetLayer(txn_buf, scPtr, INT32_MAX);
-                LOGI("Transaction::setLayer(%d) called", INT32_MAX);
+                fprintf(stderr, "[Create-RAW] setLayer OK\n"); fflush(stderr);
             }
             if (F.Transaction__Show) {
                 F.Transaction__Show(txn_buf, scPtr);
-                LOGI("Transaction::show() called");
+                fprintf(stderr, "[Create-RAW] show OK\n"); fflush(stderr);
             }
             if (F.Transaction__SetTrustedOverlay) {
                 F.Transaction__SetTrustedOverlay(txn_buf, scPtr, true);
-                LOGI("Transaction::setTrustedOverlay(true) called");
+                fprintf(stderr, "[Create-RAW] setTrustedOverlay OK\n"); fflush(stderr);
             }
             if (F.Transaction__Apply) {
                 auto ret = F.Transaction__Apply(txn_buf, false, true);
-                LOGI("Transaction::apply returned %d", ret);
+                fprintf(stderr, "[Create-RAW] apply => %d\n", ret); fflush(stderr);
             } else {
-                LOGE("Transaction::Apply is NULL!");
+                fprintf(stderr, "[Create-RAW] Apply is NULL!\n"); fflush(stderr);
             }
         }
 
-        // Keep SurfaceControl alive
-        if (F.RefBase__IncStrong) {
-            F.RefBase__IncStrong(surfaceControl, &surfaceControl);
-        }
+        if (F.RefBase__IncStrong) F.RefBase__IncStrong(surfaceControl, &surfaceControl);
 
-        LOGI("ANativeWindow created: %dx%d %p", width, height, window);
+        fprintf(stderr, "[Create-RAW] DONE window=%p\n", window); fflush(stderr);
         return window;
     }
 
