@@ -1,96 +1,430 @@
-[I] === custom UI pid=32166 ===
+[I] === custom UI pid=13016 ===
 [I] display: 1264x2780
-[I] window=0xb400007610a29810
+[I] window=0xb400007029e29810
 [I] rendering at 30 FPS
 [I] buf=1264x2780 screen=1264x2780
 [I] touch: /dev/input/event6 x[0-20224] y[0-44480]
-[I] touch fd=27
+[I] touch fd=26
 [I] TOUCH DOWN raw(0,0) screen(0,0) win(50,100 568x280) inside=0
 [I] TOUCH UP touching=1 dragging=0
-[I] TOUCH DOWN raw(18174,29082) screen(1136,1818) win(50,100 568x280) inside=0
+[I] TOUCH DOWN raw(3367,12211) screen(210,763) win(50,100 568x280) inside=0
 [I] TOUCH UP touching=1 dragging=0
-[I] TOUCH DOWN raw(2840,3085) screen(178,193) win(50,100 568x280) inside=1
-[I] DRAG -> (197,762)
+[I] TOUCH DOWN raw(9636,40128) screen(602,2508) win(50,100 568x280) inside=0
+[I] TOUCH UP touching=1 dragging=0
+[I] TOUCH DOWN raw(13853,13561) screen(866,848) win(50,100 568x280) inside=0
+[I] TOUCH UP touching=1 dragging=0
+[I] TOUCH DOWN raw(13316,13397) screen(832,837) win(50,100 568x280) inside=0
+[I] TOUCH UP touching=1 dragging=0
+[I] TOUCH DOWN raw(18413,29354) screen(1151,1835) win(50,100 568x280) inside=0
+[I] TOUCH UP touching=1 dragging=0
+[I] TOUCH DOWN raw(3398,3885) screen(212,243) win(50,100 568x280) inside=1
+[I] DRAG -> (0,0)
+[I] DRAG -> (0,2)
+[I] DRAG -> (0,6)
+[I] DRAG -> (0,15)
+[I] DRAG -> (1,27)
+[I] DRAG -> (3,44)
+[I] DRAG -> (6,59)
+[I] DRAG -> (8,70)
+[I] DRAG -> (10,81)
+[I] DRAG -> (11,91)
+[I] DRAG -> (13,100)
+[I] DRAG -> (14,109)
+[I] DRAG -> (14,116)
+[I] DRAG -> (15,124)
+[I] DRAG -> (15,131)
+[I] DRAG -> (15,138)
+[I] DRAG -> (15,145)
+[I] DRAG -> (15,152)
+[I] DRAG -> (15,158)
+[I] DRAG -> (15,164)
+[I] DRAG -> (15,169)
+[I] DRAG -> (15,174)
+[I] DRAG -> (15,178)
+[I] DRAG -> (15,181)
+[I] DRAG -> (15,184)
+[I] DRAG -> (15,186)
+[I] DRAG -> (15,189)
+[I] DRAG -> (15,191)
+[I] DRAG -> (15,193)
+[I] DRAG -> (15,195)
+[I] DRAG -> (15,197)
+[I] DRAG -> (15,198)
+[I] DRAG -> (15,200)
+[I] DRAG -> (15,202)
+[I] DRAG -> (15,204)
+[I] DRAG -> (15,206)
+[I] DRAG -> (15,207)
+[I] DRAG -> (15,209)
+[I] DRAG -> (15,211)
+[I] DRAG -> (15,212)
+[I] DRAG -> (15,213)
+[I] DRAG -> (15,215)
+[I] DRAG -> (15,216)
+[I] DRAG -> (15,216)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (15,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (14,217)
+[I] DRAG -> (13,217)
+[I] DRAG -> (13,217)
+[I] DRAG -> (12,217)
+[I] DRAG -> (12,217)
+[I] DRAG -> (11,217)
+[I] DRAG -> (10,217)
+[I] DRAG -> (9,217)
+[I] DRAG -> (8,217)
+[I] DRAG -> (7,217)
+[I] DRAG -> (6,217)
+[I] DRAG -> (5,217)
+[I] DRAG -> (4,217)
+[I] DRAG -> (3,217)
+[I] DRAG -> (1,217)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(5196,13679) screen(325,855) win(197,762 568x280) inside=1
-[I] DRAG -> (102,426)
+[I] TOUCH DOWN raw(1996,5116) screen(125,320) win(1,217 568x280) inside=1
+[I] DRAG -> (402,1857)
+[I] DRAG -> (404,1838)
+[I] DRAG -> (405,1828)
+[I] DRAG -> (407,1800)
+[I] DRAG -> (410,1751)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(3675,8304) screen(230,519) win(102,426 568x280) inside=1
-[I] DRAG -> (593,1322)
+[I] TOUCH DOWN raw(8538,29659) screen(534,1854) win(410,1751 568x280) inside=1
+[I] DRAG -> (422,1119)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(11535,22630) screen(721,1414) win(593,1322 568x280) inside=1
-[I] DRAG -> (1030,1748)
+[I] TOUCH DOWN raw(8729,19543) screen(546,1221) win(422,1119 568x280) inside=1
+[I] DRAG -> (324,710)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(18526,29455) screen(1158,1841) win(1030,1748 568x280) inside=1
-[I] DRAG -> (168,821)
-[I] DRAG -> (167,820)
-[I] DRAG -> (164,816)
+[I] TOUCH DOWN raw(7165,12992) screen(448,812) win(324,710 568x280) inside=1
+[I] DRAG -> (231,630)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(4664,14545) screen(292,909) win(164,816 568x280) inside=1
-[I] DRAG -> (152,1382)
+[I] TOUCH DOWN raw(5671,11712) screen(354,732) win(231,630 568x280) inside=1
+[I] DRAG -> (190,619)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(4472,23605) screen(280,1475) win(152,1382 568x280) inside=1
-[I] DRAG -> (120,817)
+[I] TOUCH DOWN raw(5005,11537) screen(313,721) win(190,619 568x280) inside=1
+[I] DRAG -> (166,615)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(3961,14551) screen(248,909) win(120,817 568x280) inside=1
-[I] DRAG -> (83,765)
+[I] TOUCH DOWN raw(4622,11472) screen(289,717) win(166,615 568x280) inside=1
+[I] DRAG -> (127,575)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(3375,13719) screen(211,857) win(83,765 568x280) inside=1
-[I] DRAG -> (96,767)
+[I] TOUCH DOWN raw(4003,10845) screen(250,678) win(127,575 568x280) inside=1
+[I] DRAG -> (1064,1726)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(3574,13764) screen(223,860) win(96,767 568x280) inside=1
-[I] DRAG -> (357,1091)
+[I] TOUCH DOWN raw(19117,29246) screen(1195,1828) win(1064,1726 568x280) inside=1
+[I] DRAG -> (287,1057)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(7747,18935) screen(484,1183) win(357,1091 568x280) inside=1
-[I] DRAG -> (337,1103)
+[I] TOUCH DOWN raw(6684,18554) screen(418,1160) win(287,1057 568x280) inside=1
+[I] DRAG -> (271,1009)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(7428,19135) screen(464,1196) win(337,1103 568x280) inside=1
-[I] DRAG -> (337,1104)
+[I] TOUCH DOWN raw(6431,17782) screen(402,1111) win(271,1009 568x280) inside=1
+[I] DRAG -> (179,937)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(7439,19151) screen(465,1197) win(337,1104 568x280) inside=1
-[I] DRAG -> (282,1026)
+[I] TOUCH DOWN raw(4956,16630) screen(310,1039) win(179,937 568x280) inside=1
+[I] DRAG -> (118,836)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(6550,17905) screen(409,1119) win(282,1026 568x280) inside=1
-[I] DRAG -> (276,963)
+[I] TOUCH DOWN raw(3985,15018) screen(249,939) win(118,836 568x280) inside=1
+[I] DRAG -> (68,676)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(6449,16887) screen(403,1055) win(276,963 568x280) inside=1
-[I] DRAG -> (1011,1756)
+[I] TOUCH DOWN raw(3181,12449) screen(199,778) win(68,676 568x280) inside=1
+[I] DRAG -> (70,586)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(18212,29573) screen(1138,1848) win(1011,1756 568x280) inside=1
-[I] DRAG -> (347,2654)
-[I] DRAG -> (350,2642)
-[I] DRAG -> (354,2623)
-[I] DRAG -> (364,2570)
-[I] DRAG -> (374,2518)
-[I] DRAG -> (381,2469)
-[I] DRAG -> (387,2405)
-[I] DRAG -> (384,2349)
-[I] DRAG -> (371,2269)
-[I] DRAG -> (336,2162)
+[I] TOUCH DOWN raw(3216,11020) screen(201,689) win(70,586 568x280) inside=1
+[I] DRAG -> (1064,1750)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(7415,36083) screen(463,2255) win(336,2162 568x280) inside=1
-[I] DRAG -> (322,1213)
+[I] TOUCH DOWN raw(19375,29632) screen(1211,1852) win(1064,1750 568x280) inside=1
+[I] DRAG -> (441,886)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(7189,20897) screen(449,1306) win(322,1213 568x280) inside=1
-[I] DRAG -> (292,2673)
-[I] DRAG -> (300,2645)
-[I] DRAG -> (311,2601)
-[I] DRAG -> (326,2527)
-[I] DRAG -> (336,2436)
-[I] DRAG -> (332,2309)
+[I] TOUCH DOWN raw(9410,15817) screen(588,989) win(441,886 568x280) inside=1
+[I] DRAG -> (462,892)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(7359,38430) screen(460,2402) win(332,2309 568x280) inside=1
-[I] DRAG -> (616,1214)
+[I] TOUCH DOWN raw(9738,15902) screen(609,994) win(462,892 568x280) inside=1
+[I] DRAG -> (416,884)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(11889,20914) screen(743,1307) win(616,1214 568x280) inside=1
-[I] DRAG -> (149,1605)
+[I] TOUCH DOWN raw(9006,15776) screen(563,986) win(416,884 568x280) inside=1
+[I] DRAG -> (440,870)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(4420,27171) screen(276,1698) win(149,1605 568x280) inside=1
-[I] DRAG -> (888,1579)
+[I] TOUCH DOWN raw(9394,15565) screen(587,973) win(440,870 568x280) inside=1
+[I] DRAG -> (1050,1737)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(16252,26751) screen(1016,1672) win(888,1579 568x280) inside=1
-[I] DRAG -> (97,1942)
+[I] TOUCH DOWN raw(19144,29434) screen(1196,1840) win(1050,1737 568x280) inside=1
+[I] DRAG -> (187,827)
 [I] TOUCH UP touching=1 dragging=1
-[I] TOUCH DOWN raw(3597,32555) screen(225,2035) win(97,1942 568x280) inside=1
-[I] DRAG -> (947,1372)
+[I] TOUCH DOWN raw(5346,14873) screen(334,930) win(187,827 568x280) inside=1
+[I] DRAG -> (128,808)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(4402,14566) screen(275,910) win(128,808 568x280) inside=1
+[I] DRAG -> (107,776)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(4063,14048) screen(254,878) win(107,776 568x280) inside=1
+[I] DRAG -> (64,745)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(3368,13560) screen(210,848) win(64,745 568x280) inside=1
+[I] DRAG -> (55,735)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(3235,13399) screen(202,837) win(55,735 568x280) inside=1
+[I] DRAG -> (50,726)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(3145,13246) screen(197,828) win(50,726 568x280) inside=1
+[I] DRAG -> (73,734)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(3518,13388) screen(220,837) win(73,734 568x280) inside=1
+[I] DRAG -> (89,743)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(3769,13523) screen(236,845) win(89,743 568x280) inside=1
+[I] DRAG -> (1021,1718)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(18682,29132) screen(1168,1821) win(1021,1718 568x280) inside=1
+[I] DRAG -> (119,944)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(4258,16741) screen(266,1046) win(119,944 568x280) inside=1
+[I] DRAG -> (92,903)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(3819,16079) screen(239,1005) win(92,903 568x280) inside=1
+[I] DRAG -> (96,898)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(3879,16012) screen(242,1001) win(96,898 568x280) inside=1
+[I] DRAG -> (100,895)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(3954,15957) screen(247,997) win(100,895 568x280) inside=1
+[I] DRAG -> (1013,1735)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(18558,29405) screen(1160,1838) win(1013,1735 568x280) inside=1
+[I] DRAG -> (313,921)
+[I] DRAG -> (313,921)
+[I] DRAG -> (316,923)
+[I] DRAG -> (323,928)
+[I] DRAG -> (334,936)
+[I] DRAG -> (348,949)
+[I] DRAG -> (361,962)
+[I] DRAG -> (376,979)
+[I] DRAG -> (390,996)
+[I] DRAG -> (402,1013)
+[I] DRAG -> (416,1033)
+[I] DRAG -> (425,1048)
+[I] DRAG -> (433,1063)
+[I] DRAG -> (439,1076)
+[I] DRAG -> (445,1089)
+[I] DRAG -> (451,1103)
+[I] DRAG -> (457,1116)
+[I] DRAG -> (462,1128)
+[I] DRAG -> (466,1138)
+[I] DRAG -> (470,1148)
+[I] DRAG -> (473,1156)
+[I] DRAG -> (476,1164)
+[I] DRAG -> (478,1171)
+[I] DRAG -> (480,1177)
+[I] DRAG -> (482,1183)
+[I] DRAG -> (484,1187)
+[I] DRAG -> (485,1191)
+[I] DRAG -> (486,1194)
+[I] DRAG -> (486,1196)
+[I] DRAG -> (486,1196)
+[I] DRAG -> (486,1197)
+[I] DRAG -> (486,1196)
+[I] DRAG -> (484,1193)
+[I] DRAG -> (478,1184)
+[I] DRAG -> (468,1168)
+[I] DRAG -> (449,1141)
+[I] DRAG -> (418,1102)
+[I] DRAG -> (378,1058)
+[I] DRAG -> (330,1014)
+[I] DRAG -> (278,974)
+[I] DRAG -> (227,938)
+[I] DRAG -> (182,909)
+[I] DRAG -> (142,886)
+[I] DRAG -> (109,866)
+[I] DRAG -> (81,850)
+[I] DRAG -> (57,837)
+[I] DRAG -> (37,825)
+[I] DRAG -> (21,815)
+[I] DRAG -> (11,806)
+[I] DRAG -> (7,800)
+[I] DRAG -> (8,795)
+[I] DRAG -> (12,793)
+[I] DRAG -> (20,790)
+[I] DRAG -> (33,789)
+[I] DRAG -> (54,792)
+[I] DRAG -> (97,805)
+[I] DRAG -> (164,834)
+[I] DRAG -> (241,879)
+[I] DRAG -> (321,939)
+[I] DRAG -> (399,1009)
+[I] DRAG -> (472,1086)
+[I] DRAG -> (539,1165)
+[I] DRAG -> (598,1241)
+[I] DRAG -> (651,1311)
+[I] DRAG -> (695,1371)
+[I] DRAG -> (730,1423)
+[I] DRAG -> (755,1464)
+[I] DRAG -> (769,1491)
+[I] DRAG -> (774,1506)
+[I] DRAG -> (774,1513)
+[I] DRAG -> (770,1515)
+[I] DRAG -> (765,1514)
+[I] DRAG -> (758,1511)
+[I] DRAG -> (750,1506)
+[I] DRAG -> (738,1495)
+[I] DRAG -> (719,1477)
+[I] DRAG -> (694,1449)
+[I] DRAG -> (662,1415)
+[I] DRAG -> (618,1365)
+[I] DRAG -> (566,1308)
+[I] DRAG -> (507,1242)
+[I] DRAG -> (441,1174)
+[I] DRAG -> (376,1112)
+[I] DRAG -> (312,1059)
+[I] DRAG -> (251,1017)
+[I] DRAG -> (196,983)
+[I] DRAG -> (150,956)
+[I] DRAG -> (114,935)
+[I] DRAG -> (87,920)
+[I] DRAG -> (69,907)
+[I] DRAG -> (58,895)
+[I] DRAG -> (55,883)
+[I] DRAG -> (55,868)
+[I] DRAG -> (60,853)
+[I] DRAG -> (67,839)
+[I] DRAG -> (76,828)
+[I] DRAG -> (87,821)
+[I] DRAG -> (100,817)
+[I] DRAG -> (115,817)
+[I] DRAG -> (133,820)
+[I] DRAG -> (153,826)
+[I] DRAG -> (175,836)
+[I] DRAG -> (197,846)
+[I] DRAG -> (216,858)
+[I] DRAG -> (230,868)
+[I] DRAG -> (240,876)
+[I] DRAG -> (246,881)
+[I] DRAG -> (249,885)
+[I] DRAG -> (250,887)
+[I] DRAG -> (250,888)
+[I] DRAG -> (250,889)
+[I] DRAG -> (249,889)
+[I] DRAG -> (248,889)
+[I] DRAG -> (246,889)
+[I] DRAG -> (244,889)
+[I] DRAG -> (242,888)
+[I] DRAG -> (239,888)
+[I] DRAG -> (235,886)
+[I] DRAG -> (231,885)
+[I] DRAG -> (227,884)
+[I] DRAG -> (223,882)
+[I] DRAG -> (220,881)
+[I] DRAG -> (217,881)
+[I] DRAG -> (214,880)
+[I] DRAG -> (212,880)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(5745,15711) screen(359,982) win(212,880 568x280) inside=1
+[I] DRAG -> (356,2643)
+[I] DRAG -> (361,2629)
+[I] DRAG -> (372,2588)
+[I] DRAG -> (389,2518)
+[I] DRAG -> (401,2457)
+[I] DRAG -> (409,2385)
+[I] DRAG -> (409,2320)
+[I] DRAG -> (403,2268)
+[I] DRAG -> (390,2219)
+[I] DRAG -> (378,2186)
+[I] DRAG -> (366,2158)
+[I] DRAG -> (358,2139)
+[I] DRAG -> (352,2127)
+[I] DRAG -> (347,2119)
+[I] DRAG -> (344,2112)
+[I] DRAG -> (342,2106)
+[I] DRAG -> (339,2099)
+[I] DRAG -> (337,2094)
+[I] DRAG -> (336,2089)
+[I] DRAG -> (336,2086)
+[I] DRAG -> (337,2083)
+[I] DRAG -> (338,2082)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(7753,34946) screen(485,2184) win(338,2082 568x280) inside=1
+[I] DRAG -> (103,1698)
+[I] DRAG -> (115,1698)
+[I] DRAG -> (124,1698)
+[I] DRAG -> (145,1699)
+[I] DRAG -> (170,1700)
+[I] DRAG -> (197,1704)
+[I] DRAG -> (224,1708)
+[I] DRAG -> (244,1713)
+[I] DRAG -> (263,1719)
+[I] DRAG -> (282,1727)
+[I] DRAG -> (301,1735)
+[I] DRAG -> (319,1742)
+[I] DRAG -> (335,1749)
+[I] DRAG -> (351,1755)
+[I] DRAG -> (366,1761)
+[I] DRAG -> (380,1766)
+[I] DRAG -> (394,1771)
+[I] DRAG -> (408,1776)
+[I] DRAG -> (422,1781)
+[I] DRAG -> (436,1786)
+[I] DRAG -> (451,1791)
+[I] DRAG -> (465,1796)
+[I] DRAG -> (480,1801)
+[I] DRAG -> (493,1805)
+[I] DRAG -> (506,1810)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(10447,30598) screen(653,1912) win(506,1810 568x280) inside=1
+[I] DRAG -> (0,2379)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(1937,39696) screen(121,2481) win(0,2379 568x280) inside=1
+[I] DRAG -> (848,0)
+[I] DRAG -> (843,35)
+[I] DRAG -> (835,84)
+[I] DRAG -> (826,151)
+[I] DRAG -> (816,222)
+[I] DRAG -> (804,303)
+[I] DRAG -> (791,393)
+[I] DRAG -> (778,484)
+[I] DRAG -> (761,605)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(14111,9905) screen(882,619) win(761,605 568x280) inside=1
+[I] DRAG -> (906,1839)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(16431,29655) screen(1027,1853) win(906,1839 568x280) inside=1
+[I] DRAG -> (450,2366)
+[I] DRAG -> (446,2314)
+[I] DRAG -> (442,2260)
+[I] DRAG -> (434,2147)
+[I] DRAG -> (422,2038)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(8689,32840) screen(543,2052) win(422,2038 568x280) inside=1
+[I] DRAG -> (637,1324)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(12127,21404) screen(758,1338) win(637,1324 568x280) inside=1
+[I] DRAG -> (148,1761)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(4306,28401) screen(269,1775) win(148,1761 568x280) inside=1
+[I] DRAG -> (902,1646)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(16374,26558) screen(1023,1660) win(902,1646 568x280) inside=1
+[I] DRAG -> (134,2059)
+[I] TOUCH UP touching=1 dragging=1
+[I] TOUCH DOWN raw(4082,33174) screen(255,2073) win(134,2059 568x280) inside=1
+[I] DRAG -> (1039,1421)
 [I] TOUCH UP touching=1 dragging=1
