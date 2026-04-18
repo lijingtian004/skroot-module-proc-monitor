@@ -1,7 +1,5 @@
-#include "imgui.h"
-#include "imgui_impl_android.h"
-#include "imgui_impl_vulkan.h"
-#include "VulkanGraphics.h"
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 #include "ANativeWindowCreator.h"
 
 #include <cstdio>
@@ -18,31 +16,28 @@
 #include <android/log.h>
 #include <linux/input.h>
 #include <fcntl.h>
+#include <algorithm>
 
-#define LOG_TAG "SKRootOverlay"
+#define LOG_TAG "SKRootUI"
 static FILE* g_logfp = nullptr;
 #define LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__); if(g_logfp) { fprintf(g_logfp, "[I] " __VA_ARGS__); fprintf(g_logfp, "\n"); fflush(g_logfp); } } while(0)
 #define LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__); if(g_logfp) { fprintf(g_logfp, "[E] " __VA_ARGS__); fprintf(g_logfp, "\n"); fflush(g_logfp); } } while(0)
 
-static void sig_handler(int sig, siginfo_t* info, void* ctx) {
-    LOGE("CRASH: signal %d addr %p", sig, info->si_addr); _exit(1);
-}
-
-static int g_port = 10273;
-static int g_fps = 60;
 static bool g_running = true;
+static int g_port = 10273;
 static int g_screen_w = 1080, g_screen_h = 2400;
-static float g_scale_x = 1.0f, g_scale_y = 1.0f;
-static int g_touch_fd = -1;
-static float g_win_x = 0, g_win_y = 0, g_win_w = 0, g_win_h = 0;
-static bool g_was_inside = false;
+static ANativeWindow* g_win = nullptr;
 
+// ====== 数据 ======
 struct OverlayData {
-    double cpu_total = 0; double cpu_cores[16] = {}; int cpu_core_count = 0;
-    double gpu_pct = -1; char gpu_name[32] = {}; double power_mw = 0;
-    int bat_level = -1; int bat_temp = 0; char bat_status[32] = {};
-    char fg_app[128] = {}; double fg_cpu = 0; int fg_mem = 0;
-    double gpu_freq_mhz = 0;
+    double cpu_total = 0;
+    double gpu_pct = -1;
+    double power_mw = 0;
+    int bat_level = -1;
+    int bat_temp = 0;
+    char fg_app[128] = {};
+    double fg_cpu = 0;
+    int fg_mem = 0;
 };
 static OverlayData g_data;
 static pthread_mutex_t g_data_mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -87,19 +82,172 @@ static void fetch_data() {
     g_data.power_mw=jnum(c,"power_mw"); g_data.bat_level=(int)jnum(c,"bat_level");
     g_data.bat_temp=(int)jnum(c,"bat_temp"); g_data.fg_cpu=jnum(c,"fg_cpu");
     g_data.fg_mem=(int)jnum(c,"fg_mem");
-    jstr(c,"gpu_name",g_data.gpu_name,32); jstr(c,"bat_status",g_data.bat_status,32);
     jstr(c,"fg_app",g_data.fg_app,128);
-    g_data.gpu_freq_mhz = jnum(c, "gpu_freq_mhz");
-    const char* ap=strstr(c,"\"cpu_cores\"");
-    if(ap){ap=strchr(ap,'[');if(ap){ap++;g_data.cpu_core_count=0;
-    while(*ap&&*ap!=']'&&g_data.cpu_core_count<16){while(*ap==' '||*ap==',')ap++;
-    if(*ap==']')break;g_data.cpu_cores[g_data.cpu_core_count++]=atof(ap);
-    while(*ap&&*ap!=','&&*ap!=']')ap++;}}}
     pthread_mutex_unlock(&g_data_mtx);
 }
 static void* data_thread(void*){while(g_running){fetch_data();usleep(2000000);}return nullptr;}
 
-// ====== 触摸 ======
+// ====== 5x7 bitmap font ======
+static const uint8_t FONT_5x7[][7] = {
+    {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, // A
+    {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E}, // B
+    {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E}, // C
+    {0x1E,0x11,0x11,0x11,0x11,0x11,0x1E}, // D
+    {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F}, // E
+    {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10}, // F
+    {0x0E,0x11,0x10,0x17,0x11,0x11,0x0F}, // G
+    {0x11,0x11,0x11,0x1F,0x11,0x11,0x11}, // H
+    {0x0E,0x04,0x04,0x04,0x04,0x04,0x0E}, // I
+    {0x07,0x02,0x02,0x02,0x02,0x12,0x0C}, // J
+    {0x11,0x12,0x14,0x18,0x14,0x12,0x11}, // K
+    {0x10,0x10,0x10,0x10,0x10,0x10,0x1F}, // L
+    {0x11,0x1B,0x15,0x15,0x11,0x11,0x11}, // M
+    {0x11,0x19,0x15,0x13,0x11,0x11,0x11}, // N
+    {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E}, // O
+    {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10}, // P
+    {0x0E,0x11,0x11,0x11,0x15,0x12,0x0D}, // Q
+    {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11}, // R
+    {0x0E,0x11,0x10,0x0E,0x01,0x11,0x0E}, // S
+    {0x1F,0x04,0x04,0x04,0x04,0x04,0x04}, // T
+    {0x11,0x11,0x11,0x11,0x11,0x11,0x0E}, // U
+    {0x11,0x11,0x11,0x11,0x11,0x0A,0x04}, // V
+    {0x11,0x11,0x11,0x15,0x15,0x1B,0x11}, // W
+    {0x11,0x11,0x0A,0x04,0x0A,0x11,0x11}, // X
+    {0x11,0x11,0x0A,0x04,0x04,0x04,0x04}, // Y
+    {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F}, // Z
+    {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E}, // 0
+    {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E}, // 1
+    {0x0E,0x11,0x01,0x06,0x08,0x10,0x1F}, // 2
+    {0x0E,0x11,0x01,0x06,0x01,0x11,0x0E}, // 3
+    {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02}, // 4
+    {0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E}, // 5
+    {0x06,0x08,0x10,0x1E,0x11,0x11,0x0E}, // 6
+    {0x1F,0x01,0x02,0x04,0x08,0x08,0x08}, // 7
+    {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E}, // 8
+    {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C}, // 9
+    {0x00,0x00,0x00,0x00,0x00,0x04,0x00}, // .
+    {0x00,0x00,0x00,0x1F,0x00,0x00,0x00}, // -
+    {0x00,0x00,0x00,0x00,0x00,0x00,0x00}, // space
+    {0x04,0x04,0x04,0x04,0x04,0x00,0x04}, // !
+    {0x02,0x04,0x08,0x10,0x08,0x04,0x02}, // <
+    {0x08,0x04,0x02,0x01,0x02,0x04,0x08}, // >
+    {0x00,0x00,0x00,0x00,0x03,0x02,0x02}, // ,
+    {0x0A,0x0A,0x04,0x04,0x0E,0x04,0x04}, // %
+    {0x04,0x0A,0x0A,0x0A,0x0A,0x04,0x00}, // degree symbol (for °C)
+};
+
+static int char_to_idx(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a'; // reuse uppercase
+    if (c >= '0' && c <= '9') return 26 + c - '0';
+    if (c == '.') return 36;
+    if (c == '-') return 37;
+    if (c == ' ') return 38;
+    if (c == '!') return 39;
+    if (c == '<') return 40;
+    if (c == '>') return 41;
+    if (c == ',') return 42;
+    if (c == '%') return 43;
+    if (c == 0xC2) return 44; // ° from UTF-8 °C  (first byte)
+    return 38; // space for unknown
+}
+
+// ====== 像素绘制 ======
+static inline uint32_t make_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    return (uint32_t)r | ((uint32_t)g << 8) | ((uint32_t)b << 16) | ((uint32_t)a << 24);
+}
+
+static inline void put_pixel(uint32_t* pixels, int stride, int x, int y, int w, int h, uint32_t color) {
+    if (x >= 0 && x < w && y >= 0 && y < h) {
+        uint8_t a = (color >> 24) & 0xFF;
+        if (a == 255) {
+            pixels[y * stride + x] = color;
+        } else if (a > 0) {
+            uint32_t dst = pixels[y * stride + x];
+            uint8_t dr = dst & 0xFF, dg = (dst>>8)&0xFF, db = (dst>>16)&0xFF;
+            float fa = a / 255.0f;
+            pixels[y * stride + x] = make_rgba(
+                (uint8_t)(dr + (((int)(color&0xFF) - dr) * fa)),
+                (uint8_t)(dg + (((int)((color>>8)&0xFF) - dg) * fa)),
+                (uint8_t)(db + (((int)((color>>16)&0xFF) - db) * fa)),
+                255);
+        }
+    }
+}
+
+static void fill_rect(uint32_t* pixels, int stride, int w, int h, int rx, int ry, int rw, int rh, uint32_t color) {
+    for (int y = ry; y < ry + rh && y < h; y++)
+        for (int x = rx; x < rx + rw && x < w; x++)
+            put_pixel(pixels, stride, x, y, w, h, color);
+}
+
+static void fill_rounded_rect(uint32_t* pixels, int stride, int w, int h, int rx, int ry, int rw, int rh, int radius, uint32_t color) {
+    // Fill center + edges
+    fill_rect(pixels, stride, w, h, rx + radius, ry, rw - 2*radius, rh, color); // center horizontal
+    fill_rect(pixels, stride, w, h, rx, ry + radius, radius, rh - 2*radius, color); // left
+    fill_rect(pixels, stride, w, h, rx + rw - radius, ry + radius, radius, rh - 2*radius, color); // right
+    // Corners
+    for (int dy = 0; dy < radius; dy++) {
+        for (int dx = 0; dx < radius; dx++) {
+            float dist = sqrtf((float)(dx*dx + dy*dy));
+            if (dist <= radius) {
+                put_pixel(pixels, stride, rx + radius - 1 - dx, ry + radius - 1 - dy, w, h, color);
+                put_pixel(pixels, stride, rx + rw - radius + dx, ry + radius - 1 - dy, w, h, color);
+                put_pixel(pixels, stride, rx + radius - 1 - dx, ry + rh - radius + dy, w, h, color);
+                put_pixel(pixels, stride, rx + rw - radius + dx, ry + rh - radius + dy, w, h, color);
+            }
+        }
+    }
+}
+
+static void draw_char(uint32_t* pixels, int stride, int w, int h, int x, int y, char c, uint32_t color, int scale) {
+    int idx = char_to_idx(c);
+    if (idx < 0 || idx >= 45) return;
+    for (int row = 0; row < 7; row++) {
+        uint8_t bits = FONT_5x7[idx][row];
+        for (int col = 0; col < 5; col++) {
+            if (bits & (0x10 >> col)) {
+                for (int sy = 0; sy < scale; sy++)
+                    for (int sx = 0; sx < scale; sx++)
+                        put_pixel(pixels, stride, x + col*scale + sx, y + row*scale + sy, w, h, color);
+            }
+        }
+    }
+}
+
+static void draw_text(uint32_t* pixels, int stride, int w, int h, int x, int y, const char* text, uint32_t color, int scale) {
+    int cx = x;
+    while (*text) {
+        if (*text == 0xC2 && *(text+1) == (char)0xB0) {
+            // °C degree symbol
+            draw_char(pixels, stride, w, h, cx, y, 0xC2, color, scale);
+            cx += 6 * scale;
+            text += 2;
+            // Draw 'C'
+            draw_char(pixels, stride, w, h, cx, y, 'C', color, scale);
+            cx += 6 * scale;
+            text++; // already at 'C', skip
+            continue;
+        }
+        draw_char(pixels, stride, w, h, cx, y, *text, color, scale);
+        cx += 6 * scale;
+        text++;
+    }
+}
+
+static int text_width(const char* text, int scale) {
+    int w = 0;
+    while (*text) { w += 6 * scale; text++; }
+    return w;
+}
+
+// ====== 窗口拖动 ======
+static float g_win_x = 50, g_win_y = 100;
+static int g_touch_fd = -1;
+static float g_scale_x = 1.0f, g_scale_y = 1.0f;
+static bool g_dragging = false;
+static float g_drag_ox = 0, g_drag_oy = 0;
+
 static bool checkTouch(int fd) {
     uint8_t* bits=nullptr; ssize_t bs=0;
     bool s=false,x=false,y=false; struct input_absinfo ai{};
@@ -119,149 +267,141 @@ static int findTouch() {
     LOGI("touch: %s x[0-%d] y[0-%d]",p,xi.maximum,yi.maximum);return fd;}return -1;
 }
 static void* touch_thread(void*) {
-    sleep(2);g_touch_fd=findTouch();
+    sleep(2); g_touch_fd=findTouch();
     if(g_touch_fd<0){LOGE("no touch");return nullptr;}
     LOGI("touch fd=%d",g_touch_fd);
-    struct input_event evs[64];int cx=0,cy=0,tid=-1;
-    bool touching=false,down_sent=false;ImGuiIO& io=ImGui::GetIO();
+    struct input_event evs[64];int cx=0,cy=0,tid=-1;bool touching=false;
     while(g_running){ssize_t n=read(g_touch_fd,evs,sizeof(evs));
     if(n<=0){usleep(8000);continue;}size_t cnt=n/sizeof(struct input_event);
     for(size_t i=0;i<cnt;i++){auto& e=evs[i];
         if(e.type==EV_ABS){if(e.code==ABS_MT_POSITION_X)cx=e.value;
         else if(e.code==ABS_MT_POSITION_Y)cy=e.value;
         else if(e.code==ABS_MT_TRACKING_ID){
-            if(e.value>=0&&tid<0)touching=true;
-            else if(e.value<0&&tid>=0){touching=false;if(down_sent){io.AddMouseButtonEvent(0,false);down_sent=false;g_was_inside=false;}}
+            if(e.value>=0&&tid<0){touching=true;g_drag_ox=cx*g_scale_x-g_win_x;g_drag_oy=cy*g_scale_y-g_win_y;}
+            else if(e.value<0&&tid>=0){touching=false;}
             tid=e.value;}}
         if(e.type==EV_SYN&&e.code==SYN_REPORT&&touching){
-            float sx=cx*g_scale_x,sy=cy*g_scale_y;
-            bool inside=(sx>=g_win_x&&sx<=g_win_x+g_win_w&&sy>=g_win_y&&sy<=g_win_y+g_win_h);
-            if(inside){if(!down_sent){io.AddMouseButtonEvent(0,true);down_sent=true;}
-            io.AddMousePosEvent(sx,sy);g_was_inside=true;}
-            else if(g_was_inside&&down_sent){io.AddMouseButtonEvent(0,false);down_sent=false;g_was_inside=false;}
+            g_win_x=cx*g_scale_x-g_drag_ox; g_win_y=cy*g_scale_y-g_drag_oy;
+            // clamp
+            if(g_win_x<0)g_win_x=0; if(g_win_y<0)g_win_y=0;
+            if(g_win_x>g_screen_w-200)g_win_x=g_screen_w-200;
+            if(g_win_y>g_screen_h-100)g_win_y=g_screen_h-100;
         }}}close(g_touch_fd);return nullptr;
 }
 
-// ====== 拖拽状态 ======
-static bool g_dragging = false;
-static ImVec2 g_drag_offset;
+// ====== 渲染 ======
+static void render_frame() {
+    if (!g_win) return;
+    ANativeWindow_Buffer buf;
+    if (ANativeWindow_lock(g_win, &buf, nullptr) != 0) return;
 
-// ====== UI - 系统监控风格 ======
-static void DrawUI() {
-    pthread_mutex_lock(&g_data_mtx); OverlayData d = g_data; pthread_mutex_unlock(&g_data_mtx);
-    ImGuiIO& io = ImGui::GetIO();
-    float sw = io.DisplaySize.x, sh = io.DisplaySize.y;
-    float pad = sw * 0.02f;
+    int w = buf.width, h = buf.height;
+    uint32_t* pixels = (uint32_t*)buf.bits;
+    int stride = buf.stride;
 
-    ImGui::SetNextWindowPos(ImVec2(pad, pad), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(sw * 0.4f, 0), ImGuiCond_FirstUseEver);
+    // 清屏（全透明）
+    memset(pixels, 0, stride * h * 4);
 
-    // 黑色半透明，无边框，圆角
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0.80f));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, sw * 0.012f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(sw * 0.025f, sw * 0.018f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(sw * 0.01f, sw * 0.008f));
+    // 读数据
+    pthread_mutex_lock(&g_data_mtx);
+    OverlayData d = g_data;
+    pthread_mutex_unlock(&g_data_mtx);
 
-    ImGui::Begin("##monitor", &g_running,
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar);
+    // 窗口参数
+    int wx = (int)g_win_x, wy = (int)g_win_y;
+    int ww = w * 0.45f;  // 45% 屏幕宽度
+    int padding = ww * 0.05f;
+    int font_scale = ww / 140; // 字体缩放
+    if (font_scale < 2) font_scale = 2;
+    int line_h = 8 * font_scale;
+    int content_w = ww - 2 * padding;
 
-    ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
-    g_win_x = wp.x; g_win_y = wp.y; g_win_w = ws.x; g_win_h = ws.y;
+    // 计算窗口高度
+    int wh = padding * 2 + line_h * 6 + 8 * font_scale; // 6行 + padding
 
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    float lh = ImGui::GetTextLineHeight();
+    // 背景：黑色半透明圆角矩形
+    uint32_t bg_color = make_rgba(0, 0, 0, 204); // 80% 黑
+    fill_rounded_rect(pixels, stride, w, h, wx, wy, ww, wh, ww * 0.03f, bg_color);
 
-    // ---- CPU 行 ----
-    ImGui::TextColored(ImVec4(1, 1, 1, 0.95f), "CPU");
-    ImGui::Spacing();
+    // 内容绘制
+    int cy = wy + padding;
+    int lx = wx + padding; // 标签左对齐
 
-    // ---- GPU 行：标签 + 大号百分比 + 进度条 ----
-    float gpu_pct = (float)d.gpu_pct;
-    ImGui::TextColored(ImVec4(1, 1, 1, 0.9f), "GPU");
-    ImGui::SameLine(0, sw * 0.03f);
-    float big_scale = 1.6f;
-    ImGui::SetWindowFontScale(big_scale);
-    ImVec4 gpu_color = gpu_pct > 80 ? ImVec4(1, 0.4f, 0.3f, 1) : gpu_pct > 50 ? ImVec4(1, 0.85f, 0.3f, 1) : ImVec4(0.4f, 1, 0.5f, 1);
-    ImGui::TextColored(gpu_color, "%.0f%%", gpu_pct);
-    ImGui::SetWindowFontScale(1.0f);
+    uint32_t white = make_rgba(255, 255, 255, 255);
+    uint32_t dim = make_rgba(180, 180, 180, 200);
+
+    // CPU 行
+    draw_text(pixels, stride, w, h, lx, cy, "CPU", white, font_scale);
+    cy += line_h + font_scale * 2;
+
+    // GPU 行
+    draw_text(pixels, stride, w, h, lx, cy, "GPU", white, font_scale);
+    // 百分比 - 大号
+    int big_scale = font_scale * 2;
+    char gpu_str[16]; snprintf(gpu_str, sizeof(gpu_str), "%.0f%%", d.gpu_pct);
+    int gpu_w = text_width(gpu_str, big_scale);
+    int rx = wx + ww - padding - gpu_w; // 右对齐
+    uint32_t gpu_color = d.gpu_pct > 80 ? make_rgba(255,100,80,255) : d.gpu_pct > 50 ? make_rgba(255,215,75,255) : make_rgba(100,255,130,255);
+    draw_text(pixels, stride, w, h, rx, cy - font_scale/2, gpu_str, gpu_color, big_scale);
 
     // 进度条
-    float bar_w = ws.x - sw * 0.05f;
-    float bar_h = lh * 0.25f;
-    ImVec2 bp = ImGui::GetCursorScreenPos();
-    bp.y -= lh * 0.3f;
-    dl->AddRectFilled(bp, ImVec2(bp.x + bar_w, bp.y + bar_h), IM_COL32(50, 50, 50, 180), bar_h * 0.5f);
-    float fill = (gpu_pct / 100.0f) * bar_w;
-    if (fill > 2.0f) {
-        ImU32 bar_color = gpu_pct > 80 ? IM_COL32(255, 100, 80, 220) : gpu_pct > 50 ? IM_COL32(255, 215, 75, 220) : IM_COL32(100, 255, 130, 220);
-        dl->AddRectFilled(bp, ImVec2(bp.x + fill, bp.y + bar_h), bar_color, bar_h * 0.5f);
+    cy += line_h + font_scale * 2;
+    int bar_x = lx, bar_y = cy;
+    int bar_w = content_w, bar_h = font_scale * 2;
+    fill_rounded_rect(pixels, stride, w, h, bar_x, bar_y, bar_w, bar_h, bar_h/2, make_rgba(50,50,50,180));
+    int fill = (int)((d.gpu_pct / 100.0f) * bar_w);
+    if (fill > 2) fill_rounded_rect(pixels, stride, w, h, bar_x, bar_y, fill, bar_h, bar_h/2, gpu_color);
+    cy += bar_h + font_scale * 3;
+
+    // 频率行 - 大号
+    float cpu_freq = 300 + (2438 - 300) * (d.cpu_total / 100.0);
+    if (cpu_freq >= 1000) {
+        char freq_str[32]; snprintf(freq_str, sizeof(freq_str), "%.0fMHz", cpu_freq);
+        draw_text(pixels, stride, w, h, lx, cy, freq_str, white, big_scale);
+    } else {
+        draw_text(pixels, stride, w, h, lx, cy, "0MHz", dim, big_scale);
     }
-    ImGui::Dummy(ImVec2(0, bar_h * 0.5f));
-    ImGui::Spacing();
+    cy += line_h * 2 + font_scale * 2;
 
-    // ---- 频率行：大号数字 ----
-    float cpu_freq = 0;
-    for (int i = 0; i < d.cpu_core_count; i++) if (d.cpu_cores[i] > cpu_freq) cpu_freq = d.cpu_cores[i];
-    if (cpu_freq == 0 && d.cpu_total > 0) cpu_freq = 300 + (2438 - 300) * (d.cpu_total / 100.0);
-    ImGui::SetWindowFontScale(big_scale);
-    if (cpu_freq >= 1000) ImGui::TextColored(ImVec4(1, 1, 1, 0.95f), "%.0fMHz", cpu_freq);
-    else ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "0MHz");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::Spacing();
-
-    // ---- 温度行 ----
+    // 温度行
     float temp = d.bat_temp / 10.0f;
-    ImVec4 temp_color = temp > 45 ? ImVec4(1, 0.4f, 0.3f, 1) : temp > 38 ? ImVec4(1, 0.85f, 0.3f, 1) : ImVec4(1, 1, 1, 0.9f);
-    ImGui::TextColored(temp_color, "%.1f°C", temp);
+    char temp_str[32]; snprintf(temp_str, sizeof(temp_str), "%.1fC", temp);
+    uint32_t temp_color = temp > 45 ? make_rgba(255,100,80,255) : temp > 38 ? make_rgba(255,215,75,255) : white;
+    draw_text(pixels, stride, w, h, lx, cy, temp_str, temp_color, font_scale);
 
-    ImGui::End();
-    ImGui::PopStyleVar(4);
-    ImGui::PopStyleColor(2);
+    ANativeWindow_unlockAndPost(g_win);
 }
 
 // ====== MAIN ======
 int main() {
     g_logfp = fopen("/data/adb/overlay.log", "w");
     if(g_logfp) dup2(fileno(g_logfp), STDERR_FILENO);
-    struct sigaction sa{}; sa.sa_sigaction=sig_handler; sa.sa_flags=SA_SIGINFO;
-    sigaction(SIGSEGV,&sa,nullptr); sigaction(SIGABRT,&sa,nullptr); sigaction(SIGBUS,&sa,nullptr);
-    LOGI("=== pid=%d ===", getpid());
+    LOGI("=== custom UI pid=%d ===", getpid());
 
     auto di = android::ANativeWindowCreator::GetDisplayInfo();
-    g_screen_w = di.width>0?di.width:1080; g_screen_h = di.height>0?di.height:2400;
-    LOGI("display: %dx%d orient=%d", g_screen_w, g_screen_h, di.orientation);
+    g_screen_w = di.width>0?di.width:1080;
+    g_screen_h = di.height>0?di.height:2400;
+    LOGI("display: %dx%d", g_screen_w, g_screen_h);
 
-    auto* win = android::ANativeWindowCreator::Create("SKRootOverlay", g_screen_w, g_screen_h);
-    if(!win){LOGE("window failed");return 1;}
-    LOGI("window=%p", win);
+    g_win = android::ANativeWindowCreator::Create("SKRootOverlay", g_screen_w, g_screen_h);
+    if (!g_win) { LOGE("window failed"); return 1; }
+    LOGI("window=%p", g_win);
 
-    IMGUI_CHECKVERSION(); ImGui::CreateContext();
-    ImGui::StyleColorsDark();
-    float scale = g_screen_w / 540.0f;
-    ImGui::GetStyle().ScaleAllSizes(scale);
-    ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = ImVec2((float)g_screen_w, (float)g_screen_h);
-    io.FontGlobalScale = scale;
-    io.MouseDrawCursor = false;
-
-    VulkanGraphics vk;
-    if(!vk.Init(win, g_screen_w, g_screen_h)){LOGE("Vulkan failed");return 1;}
-    LOGI("Vulkan OK %dFPS", g_fps);
-    ImGui_ImplAndroid_Init(win);
+    ANativeWindow_setBuffersGeometry(g_win, g_screen_w, g_screen_h, WINDOW_FORMAT_RGBA_8888);
 
     pthread_t dt, tt;
     pthread_create(&dt, nullptr, data_thread, nullptr);
     pthread_create(&tt, nullptr, touch_thread, nullptr);
 
-    while(g_running){
-        usleep(1000000/g_fps);
-        vk.NewFrame(); ImGui_ImplAndroid_NewFrame(); ImGui::NewFrame();
-        DrawUI(); ImGui::Render(); vk.Render(ImGui::GetDrawData());
+    LOGI("rendering at 30 FPS");
+    while (g_running) {
+        render_frame();
+        usleep(33333); // ~30 FPS
     }
-    g_running=false; pthread_join(dt,nullptr);
-    vk.Shutdown(); ImGui_ImplAndroid_Shutdown(); ImGui::DestroyContext();
-    android::ANativeWindowCreator::Destroy(win);
-    if(g_logfp) fclose(g_logfp); return 0;
+
+    g_running = false;
+    pthread_join(dt, nullptr);
+    android::ANativeWindowCreator::Destroy(g_win);
+    if (g_logfp) fclose(g_logfp);
+    return 0;
 }
