@@ -247,6 +247,7 @@ static int g_touch_fd = -1;
 static float g_scale_x = 1.0f, g_scale_y = 1.0f;
 static bool g_dragging = false;
 static float g_last_sx = 0, g_last_sy = 0; // 增量拖动：上一次触摸位置
+static bool g_skip_first_syn = false; // 跳过DOWN后的第一个SYN
 
 static bool checkTouch(int fd) {
     uint8_t* bits=nullptr; ssize_t bs=0;
@@ -303,6 +304,7 @@ static void* touch_thread(void*) {
                     if(inside){
                         dragging=true;
                         g_last_sx=sx; g_last_sy=sy; // 记录初始位置，窗口不跳
+                        g_skip_first_syn=true; // 跳过第一个SYN，防止驱动发来的坐标偏移
                     } else {
                         dragging=false;
                     }
@@ -319,6 +321,7 @@ static void* touch_thread(void*) {
         } // end EV_ABS
         if(e.type==EV_SYN&&e.code==SYN_REPORT&&touching&&dragging){
             float sx=cx*g_scale_x, sy=cy*g_scale_y;
+            if(g_skip_first_syn){g_skip_first_syn=false;g_last_sx=sx;g_last_sy=sy;LOGI("SKIP first SYN");continue;}
             float old_x=g_win_x, old_y=g_win_y;
             // 增量拖动：只移动差值，窗口不跳
             g_win_x += sx - g_last_sx;
