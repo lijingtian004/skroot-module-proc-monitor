@@ -1,26 +1,29 @@
-/* style.css — Multi-page terminal UI */
+/* style.css — SKRoot Proc Monitor — Industrial Dashboard */
 
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fragment+Mono:ital@0;1&family=Instrument+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg: #090b10;
-  --surface: #0f1219;
-  --surface-2: #141822;
-  --surface-3: #1a1f2e;
-  --border: #1e2436;
-  --border-active: #2a3350;
-  --accent: #e8a838;
-  --accent-dim: #c08828;
-  --accent-bg: #1a1610;
-  --green: #4ade80;
-  --green-bg: #0f1a12;
-  --red: #f87171;
-  --red-bg: #1a0f0f;
-  --blue: #60a5fa;
-  --text: #d4d8e4;
-  --text-2: #7a8299;
-  --text-3: #444c64;
-  --font: 'IBM Plex Mono', 'SF Mono', monospace;
+  /* OKLCH palette — warm amber brand on industrial dark */
+  --bg: oklch(0.11 0.005 260);
+  --surface: oklch(0.14 0.005 260);
+  --surface-2: oklch(0.17 0.006 260);
+  --surface-3: oklch(0.20 0.007 260);
+  --border: oklch(0.22 0.008 260);
+  --border-active: oklch(0.30 0.01 260);
+  --accent: oklch(0.75 0.15 75);
+  --accent-dim: oklch(0.60 0.12 75);
+  --accent-bg: oklch(0.16 0.02 75);
+  --green: oklch(0.75 0.16 145);
+  --green-bg: oklch(0.16 0.02 145);
+  --red: oklch(0.65 0.20 25);
+  --red-bg: oklch(0.16 0.03 25);
+  --blue: oklch(0.70 0.12 250);
+  --blue-bg: oklch(0.16 0.02 250);
+  --text: oklch(0.88 0.01 260);
+  --text-2: oklch(0.60 0.01 260);
+  --text-3: oklch(0.42 0.01 260);
+  --font: 'Fragment Mono', 'SF Mono', monospace;
+  --font-sans: 'Instrument Sans', -apple-system, sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -55,9 +58,10 @@ body {
 }
 .header-left { display: flex; align-items: center; gap: 8px; }
 .header-left h1 {
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--accent);
 }
@@ -84,11 +88,12 @@ body {
 }
 
 .page-title {
+  font-family: var(--font-sans);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: var(--text-2);
   padding: 16px 0 12px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 16px;
@@ -145,9 +150,10 @@ body {
 }
 .nav-icon { font-size: 12px; }
 .nav-label {
-  font-size: 8px;
+  font-family: var(--font-sans);
+  font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
 }
 .nav-badge {
   position: absolute;
@@ -175,7 +181,7 @@ body {
   padding: 20px 16px;
   text-align: center;
 }
-.stat-card-danger { border-left: 2px solid var(--red); }
+.stat-card-danger { background: var(--red-bg); }
 .stat-num {
   font-size: 28px;
   font-weight: 700;
@@ -362,9 +368,9 @@ body {
 .event-item:hover { background: var(--surface); }
 .event-item.new { animation: scan 0.4s ease; }
 @keyframes scan { 0% { background: var(--accent-bg); } 100% { background: transparent; } }
-.event-item.alert-item { border-left: 2px solid var(--red); padding-left: 10px; margin-left: -12px; padding-right: 12px; }
-.event-item.exec-item { border-left: 2px solid var(--green); padding-left: 10px; margin-left: -12px; padding-right: 12px; }
-.event-item.exit-item { border-left: 2px solid var(--text-3); padding-left: 10px; margin-left: -12px; padding-right: 12px; }
+.event-item.alert-item { background: var(--red-bg); }
+.event-item.exec-item { background: var(--green-bg); }
+.event-item.exit-item { background: var(--surface-2); }
 
 .event-icon {
   font-size: 11px;
