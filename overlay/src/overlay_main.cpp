@@ -272,38 +272,52 @@ static void* touch_thread(void*) {
     LOGI("touch fd=%d",g_touch_fd);
     struct input_event evs[64];int cx=0,cy=0,tid=-1;
     bool touching=false,dragging=false;
+    int touch_start_ms=0;
     while(g_running){ssize_t n=read(g_touch_fd,evs,sizeof(evs));
-    if(n<=0){usleep(8000);continue;}size_t cnt=n/sizeof(struct input_event);
+    if(n<=0){usleep(8000);continue;}
+    // 超时保护：3秒无UP事件则强制重置
+    if(touching){
+        struct timespec ts;clock_gettime(CLOCK_MONOTONIC,&ts);
+        int now_ms=ts.tv_sec*1000+ts.tv_nsec/1000000;
+        if(now_ms-touch_start_ms>3000){LOGI("TOUCH TIMEOUT force reset");touching=false;dragging=false;tid=-1;}
+    }
+    size_t cnt=n/sizeof(struct input_event);
     for(size_t i=0;i<cnt;i++){auto& e=evs[i];
-        if(e.type==EV_ABS){if(e.code==ABS_MT_POSITION_X)cx=e.value;
-        else if(e.code==ABS_MT_POSITION_Y)cy=e.value;
-        else if(e.code==ABS_MT_TRACKING_ID){
-            if(e.value>=0&&tid<0){
-                // 按下：用和渲染完全一致的窗口尺寸
-                float sx=cx*g_scale_x, sy=cy*g_scale_y;
-                int ww=g_screen_w*0.45f;
-                int padding=ww*0.05f;
-                int font_scale=ww/140;
-                if(font_scale<2)font_scale=2;
-                int line_h=8*font_scale;
-                int wh=padding*2+line_h*6+8*font_scale;
-                bool inside=(sx>=g_win_x && sx<=g_win_x+ww && sy>=g_win_y && sy<=g_win_y+wh);
-                LOGI("TOUCH DOWN raw(%d,%d) screen(%.0f,%.0f) win(%.0f,%.0f %dx%d) inside=%d",
-                     cx,cy,sx,sy,g_win_x,g_win_y,ww,wh,inside?1:0);
-                if(inside){
-                    dragging=true;
-                    g_drag_ox=sx-g_win_x;
-                    g_drag_oy=sy-g_win_y;
-                } else {
-                    dragging=false;
+        if(e.type==EV_ABS){
+            if(e.code==ABS_MT_POSITION_X)cx=e.value;
+            else if(e.code==ABS_MT_POSITION_Y)cy=e.value;
+            else if(e.code==ABS_MT_TRACKING_ID){
+                if(e.value>=0){
+                    // DOWN: 处理新触摸（包括UP丢失的恢复）
+                    if(tid>=0){LOGI("MISSED UP! old_tid=%d force reset",tid);touching=false;dragging=false;}
+                    float sx=cx*g_scale_x, sy=cy*g_scale_y;
+                    int ww=g_screen_w*0.45f;
+                    int padding=ww*0.05f;
+                    int font_scale=ww/140;
+                    if(font_scale<2)font_scale=2;
+                    int line_h=8*font_scale;
+                    int wh=padding*2+line_h*6+8*font_scale;
+                    bool inside=(sx>=g_win_x && sx<=g_win_x+ww && sy>=g_win_y && sy<=g_win_y+wh);
+                    LOGI("TOUCH DOWN raw(%d,%d) screen(%.0f,%.0f) win(%.0f,%.0f %dx%d) inside=%d",
+                         cx,cy,sx,sy,g_win_x,g_win_y,ww,wh,inside?1:0);
+                    if(inside){
+                        dragging=true;
+                        g_drag_ox=sx-g_win_x;
+                        g_drag_oy=sy-g_win_y;
+                    } else {
+                        dragging=false;
+                    }
+                    touching=true;
+                    {struct timespec ts;clock_gettime(CLOCK_MONOTONIC,&ts);touch_start_ms=ts.tv_sec*1000+ts.tv_nsec/1000000;}
                 }
-                touching=true;
+                else if(tid>=0){
+                    // UP: 抬起
+                    LOGI("TOUCH UP touching=%d dragging=%d",touching?1:0,dragging?1:0);
+                    touching=false;dragging=false;
+                }
+                tid=e.value;
             }
-            else if(e.value<0&&tid>=0){
-                LOGI("TOUCH UP touching=%d dragging=%d",touching?1:0,dragging?1:0);
-                touching=false;dragging=false;
-            }
-            tid=e.value;}}
+        } // end EV_ABS
         if(e.type==EV_SYN&&e.code==SYN_REPORT&&touching&&dragging){
             float sx=cx*g_scale_x, sy=cy*g_scale_y;
             float old_x=g_win_x, old_y=g_win_y;
