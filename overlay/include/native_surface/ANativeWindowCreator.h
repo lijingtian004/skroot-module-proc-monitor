@@ -134,12 +134,35 @@ namespace detail {
                 composer_service = (sp<void>(*)())dlsym(dlopen("/system/lib64/libutils.so", RTLD_LAZY), "_ZN7android14ComposerService17getComposerServiceEv");
                 LOGI("dlsym ComposerService (libutils): %p", (void*)composer_service);
             }
-            // Android 15 may use ComposerServiceAIDL instead
-            ComposerServiceAIDL__getComposerService = (sp<void>(*)())dlsym(libgui, "_ZN7android22ComposerServiceAIDL17getComposerServiceEv");
-            LOGI("dlsym ComposerServiceAIDL::getComposerService: %p", (void*)ComposerServiceAIDL__getComposerService);
-            if (!ComposerServiceAIDL__getComposerService) {
-                ComposerServiceAIDL__getComposerService = (sp<void>(*)())dlsym(dlopen("/system/lib64/libutils.so", RTLD_LAZY), "_ZN7android22ComposerServiceAIDL17getComposerServiceEv");
-                LOGI("dlsym ComposerServiceAIDL (libutils): %p", (void*)ComposerServiceAIDL__getComposerService);
+            // Android 15: ComposerServiceAIDL may be in libsurfaceflinger.so
+            auto libsf = dlopen("/system/lib64/libsurfaceflinger.so", RTLD_LAZY);
+            LOGI("dlopen libsurfaceflinger.so: %p", (void*)libsf);
+            if (libsf) {
+                auto csf = (sp<void>(*)())dlsym(libsf, "_ZN7android22ComposerServiceAIDL17getComposerServiceEv");
+                LOGI("dlsym ComposerServiceAIDL in libsurfaceflinger: %p", (void*)csf);
+                if (csf) {
+                    ComposerServiceAIDL__getComposerService = csf;
+                }
+                // Also try init methods
+                for (int i = 0; init_names[i]; i++) {
+                    auto fn = dlsym(libsf, init_names[i]);
+                    LOGI("dlsym init[%d] in libsurfaceflinger (%s): %p", i, init_names[i], fn);
+                    if (fn && !SurfaceComposerClient__init) {
+                        SurfaceComposerClient__init = (int32_t(*)(void*))fn;
+                    }
+                }
+                // Try SurfaceComposerClient::init() specifically
+                auto scc_init = dlsym(libsf, "_ZN7android21SurfaceComposerClient4initEv");
+                LOGI("dlsym SCC::init in libsurfaceflinger: %p", scc_init);
+                if (scc_init && !SurfaceComposerClient__init) {
+                    SurfaceComposerClient__init = (int32_t(*)(void*))scc_init;
+                }
+                // Also try getComposerService from SurfaceFlinger directly
+                auto sf_get = (sp<void>(*)())dlsym(libsf, "_ZN7android14SurfaceFlinger17getComposerServiceEv");
+                LOGI("dlsym SurfaceFlinger::getComposerService: %p", (void*)sf_get);
+                if (sf_get && !ComposerServiceAIDL__getComposerService) {
+                    ComposerServiceAIDL__getComposerService = sf_get;
+                }
             }
             // Also try SurfaceComposerClient constructor with ISurfaceComposer param
             SCC_ctor_ISurfaceComposer = (void(*)(void*, void*))dlsym(libgui, "_ZN7android21SurfaceComposerClientC1ERKNS_2spINS_16ISurfaceComposerEEE");
