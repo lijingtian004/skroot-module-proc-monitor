@@ -246,7 +246,7 @@ static float g_win_x = 50, g_win_y = 100;
 static int g_touch_fd = -1;
 static float g_scale_x = 1.0f, g_scale_y = 1.0f;
 static bool g_dragging = false;
-static float g_drag_ox = 0, g_drag_oy = 0;
+static float g_last_sx = 0, g_last_sy = 0; // 增量拖动：上一次触摸位置
 
 static bool checkTouch(int fd) {
     uint8_t* bits=nullptr; ssize_t bs=0;
@@ -302,8 +302,7 @@ static void* touch_thread(void*) {
                          cx,cy,sx,sy,g_win_x,g_win_y,ww,wh,inside?1:0);
                     if(inside){
                         dragging=true;
-                        g_drag_ox=sx-g_win_x;
-                        g_drag_oy=sy-g_win_y;
+                        g_last_sx=sx; g_last_sy=sy; // 记录初始位置，窗口不跳
                     } else {
                         dragging=false;
                     }
@@ -321,7 +320,10 @@ static void* touch_thread(void*) {
         if(e.type==EV_SYN&&e.code==SYN_REPORT&&touching&&dragging){
             float sx=cx*g_scale_x, sy=cy*g_scale_y;
             float old_x=g_win_x, old_y=g_win_y;
-            g_win_x=sx-g_drag_ox; g_win_y=sy-g_drag_oy;
+            // 增量拖动：只移动差值，窗口不跳
+            g_win_x += sx - g_last_sx;
+            g_win_y += sy - g_last_sy;
+            g_last_sx = sx; g_last_sy = sy;
             if(g_win_x<0)g_win_x=0; if(g_win_y<0)g_win_y=0;
             if(g_win_x>g_screen_w-200)g_win_x=g_screen_w-200;
             if(g_win_y>g_screen_h-100)g_win_y=g_screen_h-100;
