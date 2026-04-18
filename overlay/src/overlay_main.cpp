@@ -142,6 +142,10 @@ static void* touch_thread(void*) {
         }}}close(g_touch_fd);return nullptr;
 }
 
+// ====== 拖拽状态 ======
+static bool g_dragging = false;
+static ImVec2 g_drag_offset;
+
 // ====== UI - 系统监控风格 ======
 static void DrawUI() {
     pthread_mutex_lock(&g_data_mtx); OverlayData d = g_data; pthread_mutex_unlock(&g_data_mtx);
@@ -161,27 +165,33 @@ static void DrawUI() {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(sw * 0.01f, sw * 0.008f));
 
     ImGui::Begin("##monitor", &g_running,
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar);
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove);
 
-    // 记录窗口位置
     ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
     g_win_x = wp.x; g_win_y = wp.y; g_win_w = ws.x; g_win_h = ws.y;
+
+    // ---- 拖拽：整个窗口区域可拖动 ----
+    ImGui::SetCursorPos(ImVec2(0, 0));
+    ImGui::InvisibleButton("##drag", ws);
+    if (ImGui::IsItemActive()) {
+        if (!g_dragging) { g_dragging = true; g_drag_offset = ImVec2(io.MousePos.x - wp.x, io.MousePos.y - wp.y); }
+        ImGui::SetWindowPos(ImVec2(io.MousePos.x - g_drag_offset.x, io.MousePos.y - g_drag_offset.y));
+    } else { g_dragging = false; }
+    // 鼠标悬停时显示可拖动光标
+    if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float lh = ImGui::GetTextLineHeight();
 
-    // ---- CPU 行：标签加粗 ----
-    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.95f);
-    ImGui::TextColored(ImVec4(1, 1, 1, 1), "CPU");  // 白色，略粗
-    ImGui::PopStyleVar();
+    // ---- CPU 行 ----
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + sw * 0.005f); // 下移避免被 InvisibleButton 盖住
+    ImGui::TextColored(ImVec4(1, 1, 1, 0.95f), "CPU");
     ImGui::Spacing();
 
     // ---- GPU 行：标签 + 大号百分比 + 进度条 ----
     float gpu_pct = (float)d.gpu_pct;
     ImGui::TextColored(ImVec4(1, 1, 1, 0.9f), "GPU");
     ImGui::SameLine(0, sw * 0.03f);
-
-    // GPU 百分比 - 大号
     float big_scale = 1.6f;
     ImGui::SetWindowFontScale(big_scale);
     ImVec4 gpu_color = gpu_pct > 80 ? ImVec4(1, 0.4f, 0.3f, 1) : gpu_pct > 50 ? ImVec4(1, 0.85f, 0.3f, 1) : ImVec4(0.4f, 1, 0.5f, 1);
@@ -192,7 +202,7 @@ static void DrawUI() {
     float bar_w = ws.x - sw * 0.05f;
     float bar_h = lh * 0.25f;
     ImVec2 bp = ImGui::GetCursorScreenPos();
-    bp.y -= lh * 0.3f; // 往上靠
+    bp.y -= lh * 0.3f;
     dl->AddRectFilled(bp, ImVec2(bp.x + bar_w, bp.y + bar_h), IM_COL32(50, 50, 50, 180), bar_h * 0.5f);
     float fill = (gpu_pct / 100.0f) * bar_w;
     if (fill > 2.0f) {
@@ -204,21 +214,11 @@ static void DrawUI() {
 
     // ---- 频率行：大号数字 ----
     float cpu_freq = 0;
-    for (int i = 0; i < d.cpu_core_count; i++) {
-        if (d.cpu_cores[i] > cpu_freq) cpu_freq = d.cpu_cores[i];
-    }
-    // 用 cpu_total 估算频率 (如果 API 没给频率)
-    if (cpu_freq == 0 && d.cpu_total > 0) {
-        // 按比例算（假设 base=300MHz, max=2438MHz）
-        cpu_freq = 300 + (2438 - 300) * (d.cpu_total / 100.0);
-    }
-
+    for (int i = 0; i < d.cpu_core_count; i++) if (d.cpu_cores[i] > cpu_freq) cpu_freq = d.cpu_cores[i];
+    if (cpu_freq == 0 && d.cpu_total > 0) cpu_freq = 300 + (2438 - 300) * (d.cpu_total / 100.0);
     ImGui::SetWindowFontScale(big_scale);
-    if (cpu_freq >= 1000) {
-        ImGui::TextColored(ImVec4(1, 1, 1, 0.95f), "%.0fMHz", cpu_freq);
-    } else {
-        ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "0MHz");
-    }
+    if (cpu_freq >= 1000) ImGui::TextColored(ImVec4(1, 1, 1, 0.95f), "%.0fMHz", cpu_freq);
+    else ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "0MHz");
     ImGui::SetWindowFontScale(1.0f);
     ImGui::Spacing();
 
