@@ -44,7 +44,8 @@ namespace detail {
 
     struct Functionals {
         void (*RefBase__IncStrong)(void*, void*) = nullptr;
-        void (*RefBase__DecStrong)(void*, void*) = nullptr;
+        void* (*RefBase__DecStrong)(void*, void*) = nullptr;
+        int32_t (*SurfaceComposerClient__init)(void*) = nullptr;
         sp<void> (*SurfaceComposerClient__GetInternalDisplayToken)() = nullptr;
         std::vector<uint64_t> (*SurfaceComposerClient__GetPhysicalDisplayIds)() = nullptr;
         sp<void> (*SurfaceComposerClient__GetPhysicalDisplayToken)(uint64_t) = nullptr;
@@ -110,8 +111,34 @@ namespace detail {
             SurfaceComposerClient__Constructor_Ptr = (void*(*)(void*))dlsym(libgui, "_ZN7android21SurfaceComposerClientC2Ev");
             LOGI("dlsym Constructor_Ptr: %p", (void*)SurfaceComposerClient__Constructor_Ptr);
 
+            // Try to find init() for SurfaceComposerClient
+            SurfaceComposerClient__init = (int32_t(*)(void*))dlsym(libgui, "_ZN7android21SurfaceComposerClient4initEv");
+            LOGI("dlsym SurfaceComposerClient::init: %p", (void*)SurfaceComposerClient__init);
+            // Also try transaction init
+            auto txn_init = (void(*)(void*, const void*))dlsym(libgui, "_ZN7android21SurfaceComposerClient11Transaction4initEPKNS0_6StateTE");
+            LOGI("dlsym Transaction::init(StateT): %p", (void*)txn_init);
+
             if (systemVersion >= 14) {
-                SurfaceComposerClient__CreateSurface = (sp<void>(*)(void*, const char*, uint32_t, uint32_t, int32_t, uint32_t, void*, void*, uint32_t*))dlsym(libgui, "_ZN7android21SurfaceComposerClient13createSurfaceERKNS_7String8EjjiiRKNS_2spINS_7IBinderEEENS_3gui13LayerMetadataEPj");
+                // Try multiple createSurface signatures for Android 14/15
+                const char* cs_names[] = {
+                    // Android 15 variant (LayerMetadata as empty struct, different params)
+                    "_ZN7android21SurfaceComposerClient13createSurfaceERKNS_7String8EjjiiRKNS_2spINS_7IBinderEEENS_3gui13LayerMetadataEPj",
+                    // Android 14 variant
+                    "_ZN7android21SurfaceComposerClient13createSurfaceERKNS_7String8EjjiiRKNS_2spINS_7IBinderEEENS_13LayerMetadataEPj",
+                    // Android 12/13 variant
+                    "_ZN7android21SurfaceComposerClient13createSurfaceERKNS_7String8EjjijRKNS_2spINS_7IBinderEEENS_13LayerMetadataEPj",
+                    nullptr
+                };
+                for (int i = 0; cs_names[i]; i++) {
+                    auto fn = dlsym(libgui, cs_names[i]);
+                    LOGI("dlsym createSurface[%d]: %p (%s)", i, fn, cs_names[i]);
+                    if (fn && !SurfaceComposerClient__CreateSurface) {
+                        SurfaceComposerClient__CreateSurface = (decltype(SurfaceComposerClient__CreateSurface))fn;
+                    }
+                }
+                // Also try Android 15 specific variants
+                auto cs_v2 = dlsym(libgui, "_ZN7android21SurfaceComposerClient13createSurfaceERKNS_7String8EjjiiRKNS_2spINS_7IBinderEEENSt3__14pairIjjEEEPj");
+                LOGI("dlsym createSurface(pair variant): %p", cs_v2);
             } else if (systemVersion >= 12) {
                 SurfaceComposerClient__CreateSurface = (sp<void>(*)(void*, const char*, uint32_t, uint32_t, int32_t, uint32_t, void*, void*, uint32_t*))dlsym(libgui, "_ZN7android21SurfaceComposerClient13createSurfaceERKNS_7String8EjjijRKNS_2spINS_7IBinderEEENS_13LayerMetadataEPj");
             } else if (systemVersion >= 11) {
@@ -232,6 +259,15 @@ public:
             LOGI("Create: constructor done");
         } else {
             LOGE("Create: Constructor_Ptr is NULL!");
+        }
+
+        // Call init() if available (required on newer Android)
+        if (F.SurfaceComposerClient__init) {
+            LOGI("Create: calling SurfaceComposerClient::init()...");
+            auto init_ret = F.SurfaceComposerClient__init(scc_buf);
+            LOGI("Create: init() returned %d", init_ret);
+        } else {
+            LOGI("Create: init() not available, skip");
         }
 
         // Create surface
