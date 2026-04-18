@@ -110,8 +110,29 @@ namespace detail {
                 LOGI("dlsym getDisplayState: %p", (void*)SurfaceComposerClient__GetDisplayState);
             }
 
-            SurfaceComposerClient__Constructor_Ptr = (void*(*)(void*))dlsym(libgui, "_ZN7android21SurfaceComposerClientC2Ev");
-            LOGI("dlsym Constructor_Ptr: %p", (void*)SurfaceComposerClient__Constructor_Ptr);
+            SurfaceComposerClient__Constructor_Ptr = (void*(*)(void*))dlsym(libgui, "_ZN7android21SurfaceComposerClientC1Ev");
+            if (!SurfaceComposerClient__Constructor_Ptr) {
+                // fallback to C2 if C1 not found
+                SurfaceComposerClient__Constructor_Ptr = (void*(*)(void*))dlsym(libgui, "_ZN7android21SurfaceComposerClientC2Ev");
+            }
+            LOGI("dlsym Constructor_Ptr (C1): %p", (void*)SurfaceComposerClient__Constructor_Ptr);
+
+            // Also try Transaction::createSurface (alternative to SCC::createSurface)
+            auto tx_createSurface = dlsym(libgui, "_ZN7android21SurfaceComposerClient11Transaction13createSurfaceEPKNS_2spINS_14SurfaceControlEEERKNS_7String8EjjijNS_3gui13LayerMetadataE");
+            LOGI("dlsym Transaction::createSurface: %p", tx_createSurface);
+            if (!tx_createSurface) {
+                tx_createSurface = dlsym(libgui, "_ZN7android21SurfaceComposerClient11Transaction13createSurfaceERKNS_2spINS_14SurfaceControlEEERKNS_7String8EjjiiNS_3gui13LayerMetadataE");
+                LOGI("dlsym Transaction::createSurface(v2): %p", tx_createSurface);
+            }
+
+            // Try ComposerService for getting ISurfaceComposer
+            auto composer_service = (sp<void>(*)())dlsym(libgui, "_ZN7android14ComposerService17getComposerServiceEv");
+            LOGI("dlsym ComposerService::getComposerService: %p", (void*)composer_service);
+            // Try to find it in libutils too
+            if (!composer_service) {
+                composer_service = (sp<void>(*)())dlsym(dlopen("/system/lib64/libutils.so", RTLD_LAZY), "_ZN7android14ComposerService17getComposerServiceEv");
+                LOGI("dlsym ComposerService (libutils): %p", (void*)composer_service);
+            }
 
             // Try to find init/connect methods for SurfaceComposerClient
             const char* init_names[] = {
@@ -125,6 +146,16 @@ namespace detail {
             for (int i = 0; init_names[i]; i++) {
                 auto fn = dlsym(libgui, init_names[i]);
                 LOGI("dlsym init[%d] (%s): %p", i, init_names[i], fn);
+                if (fn && !SurfaceComposerClient__init) {
+                    SurfaceComposerClient__init = (int32_t(*)(void*))fn;
+                }
+            }
+
+            // Also try init/connect in other libs
+            auto libandroid = dlopen("/system/lib64/libandroid_runtime.so", RTLD_LAZY);
+            for (int i = 0; init_names[i]; i++) {
+                auto fn = dlsym(libandroid, init_names[i]);
+                LOGI("dlsym init[%d] in libandroid_runtime (%s): %p", i, init_names[i], fn);
                 if (fn && !SurfaceComposerClient__init) {
                     SurfaceComposerClient__init = (int32_t(*)(void*))fn;
                 }
