@@ -253,11 +253,6 @@ static void start_overlay() {
         fclose(maps);
     }
 
-    // fallback: 也尝试 g_module_dir
-    if (!module_dir[0] && !g_module_dir.empty()) {
-        strncpy(module_dir, g_module_dir.c_str(), sizeof(module_dir) - 1);
-    }
-
     if (!module_dir[0]) {
         printf("[overlay] cannot determine module directory\n");
         return;
