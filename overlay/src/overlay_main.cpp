@@ -235,6 +235,8 @@ static int find_touch_device() {
 }
 
 static void* touch_thread(void*) {
+    // 先等3秒让窗口初始化完成
+    sleep(3);
     g_touch_fd = find_touch_device();
     if (g_touch_fd < 0) { LOGE("no touch device found"); return nullptr; }
     
@@ -244,8 +246,9 @@ static void* touch_thread(void*) {
     ImGuiIO& io = ImGui::GetIO();
     
     while (g_running) {
-        if (read(g_touch_fd, &ev, sizeof(ev)) != sizeof(ev)) {
-            usleep(4000);
+        int n = read(g_touch_fd, &ev, sizeof(ev));
+        if (n != sizeof(ev)) {
+            usleep(8000);
             continue;
         }
         if (ev.type == EV_ABS) {
@@ -263,7 +266,7 @@ static void* touch_thread(void*) {
             io.AddMousePosEvent(fx, fy);
         }
     }
-    close(g_touch_fd);
+    if (g_touch_fd >= 0) close(g_touch_fd);
     return nullptr;
 }
 
