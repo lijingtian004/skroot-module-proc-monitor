@@ -294,6 +294,7 @@ public:
             // Android 15 needs valid LayerMetadata object, not nullptr
             char lm_buf[128] = {0};
             void* lm_ptr = nullptr;
+            void* empty_parent_sp = nullptr;  // valid empty sp<IBinder> object
             if (F.LayerMetadata__ctor) {
                 F.LayerMetadata__ctor(lm_buf);
                 lm_ptr = lm_buf;
@@ -301,7 +302,7 @@ public:
             } else {
                 LOGI("Create: no LayerMetadata ctor, passing nullptr (may crash on A15)");
             }
-            surfaceControl = F.SurfaceComposerClient__CreateSurface(scc_buf, name, width, height, 0x1, 0x00004000, nullptr, lm_ptr, nullptr);
+            surfaceControl = F.SurfaceComposerClient__CreateSurface(scc_buf, name, width, height, 0x1, 0x00004000, &empty_parent_sp, lm_ptr, nullptr);
             LOGI("Create: CreateSurface returned ptr=%p", surfaceControl.get());
             if (F.LayerMetadata__dtor && lm_ptr) {
                 F.LayerMetadata__dtor(lm_ptr);
