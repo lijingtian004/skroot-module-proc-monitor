@@ -110,7 +110,7 @@ static std::string http_post(const char* host, int port, const char* path) {
 static void fetch_data() {
     static int pc = 0;
     if (pc++ % 30 == 0) {
-        FILE* f = fopen("/data/local/tmp/skroot_webui_port", "r");
+        FILE* f = fopen("/data/adb/modules/skroot_module_proc_monitor/webui_port", "r");
         if (f) { int p = 0; if (fscanf(f, "%d", &p) == 1 && p > 0) g_port = p; fclose(f); }
     }
 
@@ -165,7 +165,7 @@ static void DrawUI() {
 
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.05f, io.DisplaySize.y * 0.05f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x * 0.4f, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x * 0.55f, 0), ImGuiCond_FirstUseEver);
     ImGui::Begin("SKRoot 功耗监控", &g_running, ImGuiWindowFlags_NoCollapse);
 
     // 功率
@@ -206,72 +206,76 @@ static int g_screen_w = 1080, g_screen_h = 2400;
 static int g_abs_x_min = 0, g_abs_x_max = 0, g_abs_y_min = 0, g_abs_y_max = 0;
 
 static int find_touch_device() {
-    DIR* dir = opendir("/dev/input/");
-    if (!dir) return -1;
-    struct dirent* de;
-    while ((de = readdir(dir)) != NULL) {
-        if (strncmp(de->d_name, "event", 5) != 0) continue;
-        char path[256];
-        snprintf(path, sizeof(path), "/dev/input/%s", de->d_name);
-        int fd = open(path, O_RDONLY | O_NONBLOCK);
+    // 只检查 touchscreen，跳过其他设备避免冲突
+    const char* candidates[] = {
+        "/dev/input/event0", "/dev/input/event1", "/dev/input/event2",
+        "/dev/input/event3", "/dev/input/event4", "/dev/input/event5",
+        "/dev/input/event6", "/dev/input/event7", nullptr
+    };
+    for (int i = 0; candidates[i]; i++) {
+        int fd = open(candidates[i], O_RDONLY | O_NONBLOCK);
         if (fd < 0) continue;
+        // 检查是否是触摸屏：有 EV_ABS + ABS_MT_POSITION_X
         unsigned long evbits[8] = {};
         ioctl(fd, EVIOCGBIT(0, sizeof(evbits)), evbits);
         if (!(evbits[0] & (1 << EV_ABS))) { close(fd); continue; }
         unsigned long absbits[4] = {};
         ioctl(fd, EVIOCGBIT(EV_ABS, sizeof(absbits)), absbits);
         if (!(absbits[0] & (1 << ABS_MT_POSITION_X))) { close(fd); continue; }
+        // 确认不是键盘（没有 EV_KEY 的 BTN_TOUCH 或有 EV_KEY 但主要是触摸）
+        // 读取坐标范围
         struct input_absinfo xi{}, yi{};
         ioctl(fd, EVIOCGABS(ABS_MT_POSITION_X), &xi);
         ioctl(fd, EVIOCGABS(ABS_MT_POSITION_Y), &yi);
+        if (xi.maximum <= 0 || yi.maximum <= 0) { close(fd); continue; }
         g_abs_x_min = xi.minimum; g_abs_x_max = xi.maximum;
         g_abs_y_min = yi.minimum; g_abs_y_max = yi.maximum;
-        LOGI("touch device: %s (%d-%d, %d-%d)", path, xi.minimum, xi.maximum, yi.minimum, yi.maximum);
-        closedir(dir);
+        LOGI("touch: %s x[%d-%d] y[%d-%d]", candidates[i], xi.minimum, xi.maximum, yi.minimum, yi.maximum);
         return fd;
     }
-    closedir(dir);
     return -1;
 }
 
 static void* touch_thread(void*) {
-    // 先等3秒让窗口初始化完成
-    sleep(3);
+    sleep(2);
     g_touch_fd = find_touch_device();
-    if (g_touch_fd < 0) { LOGE("no touch device found"); return nullptr; }
+    if (g_touch_fd < 0) { LOGE("no touch device"); return nullptr; }
+    LOGI("touch thread started, fd=%d", g_touch_fd);
     
     struct input_event ev;
     int cur_x = 0, cur_y = 0, tracking_id = -1;
     bool touching = false;
-    ImGuiIO& io = ImGui::GetIO();
     
     while (g_running) {
-        int n = read(g_touch_fd, &ev, sizeof(ev));
-        if (n != sizeof(ev)) {
-            usleep(8000);
-            continue;
-        }
+        ssize_t n = read(g_touch_fd, &ev, sizeof(ev));
+        if (n != sizeof(ev)) { usleep(8000); continue; }
+        
         if (ev.type == EV_ABS) {
-            if (ev.code == ABS_MT_POSITION_X || ev.code == ABS_X) cur_x = ev.value;
-            else if (ev.code == ABS_MT_POSITION_Y || ev.code == ABS_Y) cur_y = ev.value;
+            if (ev.code == ABS_MT_POSITION_X) cur_x = ev.value;
+            else if (ev.code == ABS_MT_POSITION_Y) cur_y = ev.value;
             else if (ev.code == ABS_MT_TRACKING_ID) {
-                if (ev.value >= 0 && tracking_id < 0) { touching = true; io.AddMouseButtonEvent(0, true); }
-                else if (ev.value < 0 && tracking_id >= 0) { touching = false; io.AddMouseButtonEvent(0, false); }
+                if (ev.value >= 0 && tracking_id < 0) {
+                    touching = true;
+                    ImGui::GetIO().AddMouseButtonEvent(0, true);
+                } else if (ev.value < 0 && tracking_id >= 0) {
+                    touching = false;
+                    ImGui::GetIO().AddMouseButtonEvent(0, false);
+                }
                 tracking_id = ev.value;
             }
         }
         if (ev.type == EV_SYN && ev.code == SYN_REPORT && touching) {
             float fx = (float)(cur_x - g_abs_x_min) / (float)(g_abs_x_max - g_abs_x_min) * g_screen_w;
             float fy = (float)(cur_y - g_abs_y_min) / (float)(g_abs_y_max - g_abs_y_min) * g_screen_h;
-            io.AddMousePosEvent(fx, fy);
+            ImGui::GetIO().AddMousePosEvent(fx, fy);
         }
     }
-    if (g_touch_fd >= 0) close(g_touch_fd);
+    close(g_touch_fd);
     return nullptr;
 }
 
 int main() {
-    g_logfp = fopen("/data/local/tmp/overlay.log", "w");
+    g_logfp = fopen("/data/adb/modules/skroot_module_proc_monitor/overlay.log", "w");
     if (g_logfp) {
         // stderr 也写到日志文件
         dup2(fileno(g_logfp), STDERR_FILENO);
@@ -299,8 +303,11 @@ int main() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
-    ImGui::GetStyle().ScaleAllSizes(sw / 540.0f);
-    ImGui::GetIO().DisplaySize = ImVec2((float)sw, (float)sh);
+    float scale = sw / 540.0f;
+    ImGui::GetStyle().ScaleAllSizes(scale);
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2((float)sw, (float)sh);
+    io.FontGlobalScale = scale;
 
     VulkanGraphics vk;
     if (!vk.Init(win, sw, sh)) { LOGE("Vulkan init failed"); return 1; }
