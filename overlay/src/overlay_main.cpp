@@ -183,31 +183,6 @@ static void DrawUI() {
 int main() {
     LOGI("overlay starting, pid=%d", getpid());
 
-    // Initialize binder thread pool (required for standalone process)
-    auto libbinder = dlopen("/system/lib64/libbinder.so", RTLD_LAZY);
-    if (libbinder) {
-        auto self_fn = (void*(*)())dlsym(libbinder, "_ZN7android11ProcessState4selfEv");
-        LOGI("dlsym ProcessState::self: %p", (void*)self_fn);
-        if (self_fn) {
-            auto ps = self_fn();
-            LOGI("ProcessState::self returned: %p", ps);
-            if (ps) {
-                // startThreadPool is a member function, call via vtable or direct
-                auto start_fn = (void(*)(void*))dlsym(libbinder, "_ZN7android11ProcessState16startThreadPoolEv");
-                LOGI("dlsym ProcessState::startThreadPool: %p", (void*)start_fn);
-                if (start_fn) {
-                    start_fn(ps);
-                    LOGI("binder thread pool started");
-                }
-            }
-        }
-        // Also try ProcessState::initWithDriver if needed
-        auto init_fn = (void(*)(void*, const char*))dlsym(libbinder, "_ZN7android11ProcessState12initWithDriverEPKc");
-        LOGI("dlsym ProcessState::initWithDriver: %p", (void*)init_fn);
-    } else {
-        LOGE("failed to open libbinder.so");
-    }
-
     auto di = android::ANativeWindowCreator::GetDisplayInfo();
     int sw = di.width > 0 ? di.width : 1080;
     int sh = di.height > 0 ? di.height : 2400;
