@@ -46,6 +46,8 @@ namespace detail {
         void (*RefBase__IncStrong)(void*, void*) = nullptr;
         void* (*RefBase__DecStrong)(void*, void*) = nullptr;
         int32_t (*SurfaceComposerClient__init)(void*) = nullptr;
+        void (*LayerMetadata__ctor)(void*) = nullptr;
+        void (*LayerMetadata__dtor)(void*) = nullptr;
         sp<void> (*SurfaceComposerClient__GetInternalDisplayToken)() = nullptr;
         std::vector<uint64_t> (*SurfaceComposerClient__GetPhysicalDisplayIds)() = nullptr;
         sp<void> (*SurfaceComposerClient__GetPhysicalDisplayToken)(uint64_t) = nullptr;
@@ -114,6 +116,21 @@ namespace detail {
             // Try to find init() for SurfaceComposerClient
             SurfaceComposerClient__init = (int32_t(*)(void*))dlsym(libgui, "_ZN7android21SurfaceComposerClient4initEv");
             LOGI("dlsym SurfaceComposerClient::init: %p", (void*)SurfaceComposerClient__init);
+
+            // Android 15 gui::LayerMetadata - need valid object, not nullptr
+            LayerMetadata__ctor = (void(*)(void*))dlsym(libgui, "_ZN7android3gui13LayerMetadataC1Ev");
+            LOGI("dlsym gui::LayerMetadata(): %p", (void*)LayerMetadata__ctor);
+            LayerMetadata__dtor = (void(*)(void*))dlsym(libgui, "_ZN7android3gui13LayerMetadataD1Ev");
+            LOGI("dlsym ~gui::LayerMetadata(): %p", (void*)LayerMetadata__dtor);
+            // Also try non-gui namespace
+            if (!LayerMetadata__ctor) {
+                LayerMetadata__ctor = (void(*)(void*))dlsym(libgui, "_ZN7android13LayerMetadataC1Ev");
+                LOGI("dlsym LayerMetadata() non-gui: %p", (void*)LayerMetadata__ctor);
+                if (LayerMetadata__ctor) {
+                    LayerMetadata__dtor = (void(*)(void*))dlsym(libgui, "_ZN7android13LayerMetadataD1Ev");
+                    LOGI("dlsym ~LayerMetadata() non-gui: %p", (void*)LayerMetadata__dtor);
+                }
+            }
             // Also try transaction init
             auto txn_init = (void(*)(void*, const void*))dlsym(libgui, "_ZN7android21SurfaceComposerClient11Transaction4initEPKNS0_6StateTE");
             LOGI("dlsym Transaction::init(StateT): %p", (void*)txn_init);
@@ -274,8 +291,22 @@ public:
         detail::sp<void> surfaceControl;
         if (F.SurfaceComposerClient__CreateSurface) {
             LOGI("Create: calling CreateSurface(%s, %dx%d)...", name, width, height);
-            surfaceControl = F.SurfaceComposerClient__CreateSurface(scc_buf, name, width, height, 0x1, 0x00004000, nullptr, nullptr, nullptr);
+            // Android 15 needs valid LayerMetadata object, not nullptr
+            char lm_buf[128] = {0};
+            void* lm_ptr = nullptr;
+            if (F.LayerMetadata__ctor) {
+                F.LayerMetadata__ctor(lm_buf);
+                lm_ptr = lm_buf;
+                LOGI("Create: LayerMetadata constructed at %p", lm_ptr);
+            } else {
+                LOGI("Create: no LayerMetadata ctor, passing nullptr (may crash on A15)");
+            }
+            surfaceControl = F.SurfaceComposerClient__CreateSurface(scc_buf, name, width, height, 0x1, 0x00004000, nullptr, lm_ptr, nullptr);
             LOGI("Create: CreateSurface returned ptr=%p", surfaceControl.get());
+            if (F.LayerMetadata__dtor && lm_ptr) {
+                F.LayerMetadata__dtor(lm_ptr);
+                LOGI("Create: LayerMetadata destructed");
+            }
         } else {
             LOGE("Create: CreateSurface is NULL!");
         }
