@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <string>
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/socket.h>
