@@ -113,9 +113,22 @@ namespace detail {
             SurfaceComposerClient__Constructor_Ptr = (void*(*)(void*))dlsym(libgui, "_ZN7android21SurfaceComposerClientC2Ev");
             LOGI("dlsym Constructor_Ptr: %p", (void*)SurfaceComposerClient__Constructor_Ptr);
 
-            // Try to find init() for SurfaceComposerClient
-            SurfaceComposerClient__init = (int32_t(*)(void*))dlsym(libgui, "_ZN7android21SurfaceComposerClient4initEv");
-            LOGI("dlsym SurfaceComposerClient::init: %p", (void*)SurfaceComposerClient__init);
+            // Try to find init/connect methods for SurfaceComposerClient
+            const char* init_names[] = {
+                "_ZN7android21SurfaceComposerClient4initEv",
+                "_ZN7android21SurfaceComposerClient7connectEv",
+                "_ZN7android21SurfaceComposerClient18createConnectionEv",
+                "_ZN7android21SurfaceComposerClient21createSurfaceComposerEv",
+                "_ZN7android21SurfaceComposerClient4initERKNS_2spINS_22ISurfaceFlingerClientEEE",
+                nullptr
+            };
+            for (int i = 0; init_names[i]; i++) {
+                auto fn = dlsym(libgui, init_names[i]);
+                LOGI("dlsym init[%d] (%s): %p", i, init_names[i], fn);
+                if (fn && !SurfaceComposerClient__init) {
+                    SurfaceComposerClient__init = (int32_t(*)(void*))fn;
+                }
+            }
 
             // Android 15 gui::LayerMetadata - need valid object, not nullptr
             LayerMetadata__ctor = (void(*)(void*))dlsym(libgui, "_ZN7android3gui13LayerMetadataC1Ev");
@@ -302,7 +315,7 @@ public:
             } else {
                 LOGI("Create: no LayerMetadata ctor, passing nullptr (may crash on A15)");
             }
-            surfaceControl = F.SurfaceComposerClient__CreateSurface(scc_buf, name, width, height, 0x1, 0x00004000, &empty_parent_sp, lm_ptr, nullptr);
+            surfaceControl = F.SurfaceComposerClient__CreateSurface(scc_buf, name, width, height, 0x1, 0x0, &empty_parent_sp, lm_ptr, nullptr);
             LOGI("Create: CreateSurface returned ptr=%p", surfaceControl.get());
             if (F.LayerMetadata__dtor && lm_ptr) {
                 F.LayerMetadata__dtor(lm_ptr);
