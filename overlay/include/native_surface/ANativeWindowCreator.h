@@ -257,22 +257,37 @@ public:
             fprintf(stderr, "[Create-RAW] skipping getDefault on Android %zu\n", F.systemVersion); fflush(stderr);
         }
 
+        // Fallback: 构造 + init 连接
         if (!scc) {
-            fprintf(stderr, "[Create-RAW] getDefault null, trying fallback...\n"); fflush(stderr);
+            fprintf(stderr, "[Create-RAW] using fallback constructor...\n"); fflush(stderr);
+
+            // 先尝试 C1(ISurfaceComposerClient) 构造函数
             auto scc_ctor_param = (void(*)(void*, void*))dlsym(dlopen("/system/lib64/libgui.so", RTLD_LAZY),
                 "_ZN7android21SurfaceComposerClientC1ERKNS_2spINS_3gui22ISurfaceComposerClientEEE");
-            fprintf(stderr, "[Create-RAW] C1(ISurfaceComposerClient)=%p\n", (void*)scc_ctor_param); fflush(stderr);
+            fprintf(stderr, "[Create-RAW] C1 ctor=%p\n", (void*)scc_ctor_param); fflush(stderr);
             if (scc_ctor_param) {
                 void* null_client = nullptr;
                 scc_ctor_param(scc_buf, &null_client);
                 scc = scc_buf;
-                fprintf(stderr, "[Create-RAW] param ctor done scc=%p\n", scc); fflush(stderr);
+                fprintf(stderr, "[Create-RAW] C1 done scc=%p\n", scc); fflush(stderr);
             } else if (F.SurfaceComposerClient__Constructor) {
-                fprintf(stderr, "[Create-RAW] using C2 ctor=%p\n", (void*)F.SurfaceComposerClient__Constructor); fflush(stderr);
+                fprintf(stderr, "[Create-RAW] using C2 ctor...\n"); fflush(stderr);
                 F.SurfaceComposerClient__Constructor(scc_buf);
                 if (F.RefBase__IncStrong) F.RefBase__IncStrong(scc_buf, scc_buf);
                 scc = scc_buf;
                 fprintf(stderr, "[Create-RAW] C2 done scc=%p\n", scc); fflush(stderr);
+            }
+
+            // 关键: 调用 init() 连接 SurfaceFlinger
+            if (scc) {
+                // init() 返回 status_t
+                auto scc_init = (int32_t(*)(void*))dlsym(dlopen("/system/lib64/libgui.so", RTLD_LAZY),
+                    "_ZN7android21SurfaceComposerClient4initEv");
+                fprintf(stderr, "[Create-RAW] init()=%p\n", (void*)scc_init); fflush(stderr);
+                if (scc_init) {
+                    auto ret = scc_init(scc);
+                    fprintf(stderr, "[Create-RAW] init() => %d\n", ret); fflush(stderr);
+                }
             }
         }
 
