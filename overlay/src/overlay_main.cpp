@@ -18,6 +18,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <android/log.h>
+
+#define LOG_TAG "SKRootOverlay"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 static int g_port = 10273;
 static int g_fps = 60;
@@ -175,12 +180,16 @@ static void DrawUI() {
 }
 
 int main() {
+    LOGI("overlay starting, pid=%d", getpid());
+
     auto di = android::ANativeWindowCreator::GetDisplayInfo();
     int sw = di.width > 0 ? di.width : 1080;
     int sh = di.height > 0 ? di.height : 2400;
+    LOGI("display: %dx%d", sw, sh);
 
     auto* win = android::ANativeWindowCreator::Create("SKRootOverlay", sw, sh);
-    if (!win) { fprintf(stderr, "ANativeWindow failed\n"); return 1; }
+    if (!win) { LOGE("ANativeWindow failed"); return 1; }
+    LOGI("ANativeWindow created: %p", win);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -189,12 +198,15 @@ int main() {
     ImGui::GetIO().DisplaySize = ImVec2((float)sw, (float)sh);
 
     VulkanGraphics vk;
-    if (!vk.Init(win, sw, sh)) { fprintf(stderr, "Vulkan init failed\n"); return 1; }
+    if (!vk.Init(win, sw, sh)) { LOGE("Vulkan init failed"); return 1; }
+    LOGI("Vulkan initialized");
 
     ImGui_ImplAndroid_Init(win);
 
     pthread_t tid;
     pthread_create(&tid, nullptr, data_thread, nullptr);
+
+    LOGI("entering render loop at %d FPS", g_fps);
 
     while (g_running) {
         usleep(1000000 / g_fps);
@@ -205,6 +217,8 @@ int main() {
         ImGui::Render();
         vk.Render(ImGui::GetDrawData());
     }
+
+    LOGI("overlay shutting down");
 
     g_running = false;
     pthread_join(tid, nullptr);
