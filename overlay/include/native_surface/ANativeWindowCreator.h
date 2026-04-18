@@ -241,7 +241,7 @@ public:
 
         // 1. Get pre-initialized SurfaceComposerClient
         // Try getDefault() first, fallback to parametrized constructor
-        char scc_buf[1024] = {0};
+        char scc_buf[4096] = {0};
         void* scc = nullptr;
 
         if (F.SCC_getDefault) {
@@ -340,20 +340,31 @@ public:
 
         // 6. Apply Transaction
         if (F.systemVersion >= 11 && F.Transaction__Constructor) {
-            char txn_buf[1024] = {0};
+            // Transaction 对象可能大于 1024 字节，用更大的缓冲区
+            char txn_buf[4096] = {0};
+            memset(txn_buf, 0, sizeof(txn_buf));
             F.Transaction__Constructor(txn_buf);
-            LOGI("Transaction constructed");
+            LOGI("Transaction constructed (buf=%p)", txn_buf);
 
             void* scPtr = surfaceControl;
+            // 设置 z-order 为 INT32_MAX，确保在所有窗口之上
+            if (F.Transaction__SetLayer) {
+                F.Transaction__SetLayer(txn_buf, scPtr, INT32_MAX);
+                LOGI("Transaction::setLayer(%d) called", INT32_MAX);
+            }
             if (F.Transaction__Show) {
                 F.Transaction__Show(txn_buf, scPtr);
+                LOGI("Transaction::show() called");
             }
             if (F.Transaction__SetTrustedOverlay) {
                 F.Transaction__SetTrustedOverlay(txn_buf, scPtr, true);
+                LOGI("Transaction::setTrustedOverlay(true) called");
             }
             if (F.Transaction__Apply) {
                 auto ret = F.Transaction__Apply(txn_buf, false, true);
-                LOGI("Transaction::Apply returned %d", ret);
+                LOGI("Transaction::apply returned %d", ret);
+            } else {
+                LOGE("Transaction::Apply is NULL!");
             }
         }
 

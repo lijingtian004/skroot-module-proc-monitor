@@ -23,8 +23,9 @@
 #include <android/log.h>
 
 #define LOG_TAG "SKRootOverlay"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__); if(g_logfp) { fprintf(g_logfp, "[I] " __VA_ARGS__); fprintf(g_logfp, "\n"); fflush(g_logfp); } } while(0)
+#define LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__); if(g_logfp) { fprintf(g_logfp, "[E] " __VA_ARGS__); fprintf(g_logfp, "\n"); fflush(g_logfp); } } while(0)
+static FILE* g_logfp = nullptr;
 
 // Signal handler for segfault debugging
 static void sig_handler(int sig, siginfo_t* info, void* ctx) {
@@ -196,8 +197,13 @@ static void DrawUI() {
 }
 
 int main() {
+    g_logfp = fopen("/data/local/tmp/overlay.log", "w");
+    if (g_logfp) {
+        // stderr 也写到日志文件
+        dup2(fileno(g_logfp), STDERR_FILENO);
+    }
     install_signal_handlers();
-    LOGI("overlay starting, pid=%d", getpid());
+    LOGI("=== overlay starting, pid=%d, uid=%d ===", getpid(), getuid());
     LOGI("checking dlopen libgui.so...");
     auto test_libgui = dlopen("/system/lib64/libgui.so", RTLD_LAZY);
     LOGI("dlopen libgui.so: %p", (void*)test_libgui);
