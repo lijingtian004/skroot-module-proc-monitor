@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
 
 #include "kernel_module_kit_umbrella.h"
 #include "proc_scanner.h"
@@ -197,6 +200,56 @@ static std::string build_overlay_json() {
     return result;
 }
 
+// ============ 悬浮窗进程管理 ============
+
+static pid_t g_overlay_pid = -1;
+
+static bool is_overlay_running() {
+    if (g_overlay_pid <= 0) return false;
+    // 检查进程是否还活着
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/status", g_overlay_pid);
+    FILE* f = fopen(path, "r");
+    if (f) { fclose(f); return true; }
+    g_overlay_pid = -1;
+    return false;
+}
+
+static void start_overlay(const char* module_dir) {
+    if (is_overlay_running()) {
+        printf("[overlay] already running pid=%d\n", g_overlay_pid);
+        return;
+    }
+    char bin_path[512];
+    snprintf(bin_path, sizeof(bin_path), "%s/skroot_overlay", module_dir);
+
+    // 检查文件是否存在
+    FILE* f = fopen(bin_path, "r");
+    if (!f) {
+        printf("[overlay] binary not found: %s\n", bin_path);
+        return;
+    }
+    fclose(f);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        // 子进程
+        setsid();
+        execl(bin_path, "skroot_overlay", nullptr);
+        _exit(1);
+    } else if (pid > 0) {
+        g_overlay_pid = pid;
+        printf("[overlay] started pid=%d\n", pid);
+    }
+}
+
+static void stop_overlay() {
+    if (g_overlay_pid <= 0) return;
+    kill(g_overlay_pid, SIGTERM);
+    printf("[overlay] stopped pid=%d\n", g_overlay_pid);
+    g_overlay_pid = -1;
+}
+
 // ============ 模块入口 ============
 
 static std::string g_module_dir;
@@ -314,6 +367,13 @@ public:
             kernel_module::webui::send_text(conn, 200, json);
             return true;
         }
+        if (path == "/api/overlay-toggle") {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "{\"running\":%s,\"pid\":%d}",
+                     is_overlay_running() ? "true" : "false", (int)g_overlay_pid);
+            kernel_module::webui::send_text(conn, 200, buf);
+            return true;
+        }
         return false;
     }
 
@@ -399,6 +459,19 @@ public:
         if (path == "/api/overlay") {
             std::string json = build_overlay_json();
             kernel_module::webui::send_text(conn, 200, json);
+            return true;
+        }
+
+        if (path == "/api/overlay-toggle") {
+            if (body == "start") {
+                start_overlay(g_module_dir.c_str());
+            } else if (body == "stop") {
+                stop_overlay();
+            }
+            char buf[128];
+            snprintf(buf, sizeof(buf), "{\"running\":%s,\"pid\":%d}",
+                     is_overlay_running() ? "true" : "false", (int)g_overlay_pid);
+            kernel_module::webui::send_text(conn, 200, buf);
             return true;
         }
 

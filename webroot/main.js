@@ -491,9 +491,57 @@ function renderChargingInfo() {
   }
 }
 
+// ============ Overlay Toggle ============
+async function toggleOverlay() {
+  const btn = document.getElementById('overlayToggleBtn');
+  const btnText = document.getElementById('overlayBtnText');
+  const status = document.getElementById('overlayStatus');
+  const isRunning = btnText.textContent === '关闭悬浮窗';
+  const action = isRunning ? 'stop' : 'start';
+  btnText.textContent = '操作中...';
+  btn.disabled = true;
+  const raw = await api('/api/overlay-toggle', action);
+  if (raw) try {
+    const d = JSON.parse(raw);
+    if (d.running) {
+      btnText.textContent = '关闭悬浮窗';
+      btn.classList.add('active');
+      status.textContent = '运行中 (PID ' + d.pid + ')';
+      status.style.color = 'var(--green)';
+    } else {
+      btnText.textContent = '启动悬浮窗';
+      btn.classList.remove('active');
+      status.textContent = '未运行';
+      status.style.color = 'var(--text-3)';
+    }
+  } catch(e) {}
+  btn.disabled = false;
+}
+
+async function fetchOverlayStatus() {
+  const raw = await api('/api/overlay-toggle');
+  if (raw) try {
+    const d = JSON.parse(raw);
+    const btnText = document.getElementById('overlayBtnText');
+    const btn = document.getElementById('overlayToggleBtn');
+    const status = document.getElementById('overlayStatus');
+    if (d.running) {
+      btnText.textContent = '关闭悬浮窗';
+      btn.classList.add('active');
+      status.textContent = '运行中 (PID ' + d.pid + ')';
+      status.style.color = 'var(--green)';
+    } else {
+      btnText.textContent = '启动悬浮窗';
+      btn.classList.remove('active');
+      status.textContent = '未运行';
+      status.style.color = 'var(--text-3)';
+    }
+  } catch(e) {}
+}
+
 // ============ Polling ============
 async function pollAll() {
-  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs(), fetchCharging()]);
+  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs(), fetchCharging(), fetchOverlayStatus()]);
   const dot = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
   dot.classList.add('online');
