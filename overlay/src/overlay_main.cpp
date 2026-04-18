@@ -185,7 +185,7 @@ int main() {
     auto di = android::ANativeWindowCreator::GetDisplayInfo();
     int sw = di.width > 0 ? di.width : 1080;
     int sh = di.height > 0 ? di.height : 2400;
-    LOGI("display: %dx%d", sw, sh);
+    LOGI("display: %dx%d (raw: %dx%d, orient=%d)", sw, sh, di.width, di.height, di.orientation);
 
     auto* win = android::ANativeWindowCreator::Create("SKRootOverlay", sw, sh);
     if (!win) { LOGE("ANativeWindow failed"); return 1; }

@@ -92,6 +92,8 @@ namespace detail {
                     SurfaceComposerClient__GetPhysicalDisplayIds = ids_fn;
                     SurfaceComposerClient__GetPhysicalDisplayToken = token_fn;
                 }
+                // Also try getInternalDisplayToken for fallback
+                SurfaceComposerClient__GetInternalDisplayToken = (sp<void>(*)())dlsym(libgui, "_ZN7android21SurfaceComposerClient23getInternalDisplayTokenEv");
             } else if (systemVersion >= 10) {
                 SurfaceComposerClient__GetInternalDisplayToken = (sp<void>(*)())dlsym(libgui, "_ZN7android21SurfaceComposerClient23getInternalDisplayTokenEv");
             }
@@ -143,8 +145,17 @@ public:
                 auto ids = F.SurfaceComposerClient__GetPhysicalDisplayIds();
                 LOGI("GetPhysicalDisplayIds: count=%zu", ids.size());
                 if (!ids.empty()) {
+                    LOGI("display ids[0]=%llu", (unsigned long long)ids[0]);
                     display = F.SurfaceComposerClient__GetPhysicalDisplayToken(ids[0]);
-                    LOGI("GetPhysicalDisplayToken: %s", display.get() ? "OK" : "NULL");
+                    LOGI("GetPhysicalDisplayToken done, ptr=%p", display.get());
+                }
+                // fallback
+                if (!display.get()) {
+                    LOGI("trying getInternalDisplayToken fallback");
+                    if (F.SurfaceComposerClient__GetInternalDisplayToken) {
+                        display = F.SurfaceComposerClient__GetInternalDisplayToken();
+                        LOGI("GetInternalDisplayToken fallback: ptr=%p", display.get());
+                    }
                 }
             } else {
                 LOGE("GetPhysicalDisplayIds is NULL");
