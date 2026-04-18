@@ -240,16 +240,19 @@ public:
             LOGE("SCC::Constructor is NULL"); return nullptr;
         }
         F.SurfaceComposerClient__Constructor(scc_buf);
-        LOGI("SCC constructed");
+        LOGI("SCC constructed at %p", scc_buf);
 
-        // IncStrong to keep it alive
+        // IncStrong to keep it alive (skip for now, may crash on A15)
         if (F.RefBase__IncStrong) {
-            F.RefBase__IncStrong(scc_buf, &scc_buf);
+            LOGI("calling IncStrong...");
+            F.RefBase__IncStrong(scc_buf, scc_buf);
+            LOGI("IncStrong done");
         }
 
         // 2. Construct String8 for name
         char name_buf[1024] = {0};
         if (F.String8__Constructor) {
+            LOGI("calling String8 constructor...");
             F.String8__Constructor(name_buf, name);
             LOGI("String8 constructed for '%s'", name);
         } else {
