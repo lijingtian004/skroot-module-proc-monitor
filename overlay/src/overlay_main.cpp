@@ -281,7 +281,9 @@ int main() {
 
     auto* win = android::ANativeWindowCreator::Create("SKRootOverlay", sw, sh);
     if (!win) { LOGE("ANativeWindow failed"); return 1; }
-    LOGI("ANativeWindow created: %p", win);
+    int actual_w = ANativeWindow_getWidth(win);
+    int actual_h = ANativeWindow_getHeight(win);
+    LOGI("ANativeWindow created: %p actual=%dx%d requested=%dx%d", win, actual_w, actual_h, sw, sh);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
