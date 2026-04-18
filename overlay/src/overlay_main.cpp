@@ -25,7 +25,7 @@ static FILE* g_logfp = nullptr;
 #define LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__); if(g_logfp) { fprintf(g_logfp, "[E] " __VA_ARGS__); fprintf(g_logfp, "\n"); fflush(g_logfp); } } while(0)
 
 static void sig_handler(int sig, siginfo_t* info, void* ctx) {
-    LOGE("CRASH: signal %d at addr %p", sig, info->si_addr);
+    LOGE("CRASH: signal %d at %p", sig, info->si_addr);
     _exit(1);
 }
 
@@ -33,11 +33,13 @@ static int g_port = 10273;
 static int g_fps = 60;
 static bool g_running = true;
 static int g_screen_w = 1080, g_screen_h = 2400;
-static int g_orientation = 0;
 static float g_scale_x = 1.0f, g_scale_y = 1.0f;
 static int g_touch_fd = -1;
 
-// 数据结构
+// ImGui 窗口边界（用于触摸过滤）
+static float g_win_x = 0, g_win_y = 0, g_win_w = 0, g_win_h = 0;
+static bool g_was_touching_window = false;
+
 struct OverlayData {
     double cpu_total = 0; double cpu_cores[16] = {}; int cpu_core_count = 0;
     double gpu_pct = -1; char gpu_name[32] = {}; double power_mw = 0;
@@ -47,7 +49,6 @@ struct OverlayData {
 static OverlayData g_data;
 static pthread_mutex_t g_data_mtx = PTHREAD_MUTEX_INITIALIZER;
 
-// HTTP
 static double jnum(const char* j, const char* k) {
     char n[64]; snprintf(n, sizeof(n), "\"%s\"", k);
     const char* p = strstr(j, n); if (!p) return 0;
@@ -55,44 +56,35 @@ static double jnum(const char* j, const char* k) {
     return atof(p + 1);
 }
 static void jstr(const char* j, const char* k, char* o, int sz) {
-    o[0] = 0; char n[64]; snprintf(n, sizeof(n), "\"%s\"", k);
-    const char* p = strstr(j, n); if (!p) return;
-    p = strchr(p + strlen(n), '\"'); if (!p) return; p++;
-    const char* e = strchr(p, '\"'); if (!e) return;
-    int l = (int)(e - p); if (l >= sz) l = sz - 1;
-    memcpy(o, p, l); o[l] = 0;
+    o[0]=0; char n[64]; snprintf(n,sizeof(n),"\"%s\"",k);
+    const char* p=strstr(j,n); if(!p) return;
+    p=strchr(p+strlen(n),'\"'); if(!p) return; p++;
+    const char* e=strchr(p,'\"'); if(!e) return;
+    int l=(int)(e-p); if(l>=sz) l=sz-1;
+    memcpy(o,p,l); o[l]=0;
 }
 static std::string http_post(const char* host, int port, const char* path) {
-    std::string result;
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return result;
-    struct sockaddr_in addr{};
-    addr.sin_family = AF_INET; addr.sin_port = htons(port);
-    inet_pton(AF_INET, host, &addr.sin_addr);
-    struct timeval tv{.tv_sec=1, .tv_usec=0};
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    if (connect(fd, (sockaddr*)&addr, sizeof(addr)) < 0) { close(fd); return result; }
-    char req[256];
-    int len = snprintf(req, sizeof(req), "POST %s HTTP/1.0\r\nHost: %s\r\nContent-Length: 0\r\n\r\n", path, host);
-    send(fd, req, len, 0);
-    char buf[4096]; int n;
-    while ((n = recv(fd, buf, sizeof(buf)-1, 0)) > 0) { buf[n]=0; result+=buf; }
-    close(fd);
-    auto pos = result.find("\r\n\r\n");
-    if (pos != std::string::npos) result = result.substr(pos+4);
-    return result;
+    std::string r; int fd=socket(AF_INET,SOCK_STREAM,0); if(fd<0) return r;
+    struct sockaddr_in a{}; a.sin_family=AF_INET; a.sin_port=htons(port);
+    inet_pton(AF_INET,host,&a.sin_addr);
+    struct timeval tv{.tv_sec=1,.tv_usec=0};
+    setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
+    setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
+    if(connect(fd,(sockaddr*)&a,sizeof(a))<0){close(fd);return r;}
+    char req[256]; int len=snprintf(req,sizeof(req),"POST %s HTTP/1.0\r\nHost: %s\r\nContent-Length: 0\r\n\r\n",path,host);
+    send(fd,req,len,0); char buf[4096]; int n;
+    while((n=recv(fd,buf,sizeof(buf)-1,0))>0){buf[n]=0;r+=buf;}
+    close(fd); auto pos=r.find("\r\n\r\n"); if(pos!=std::string::npos) r=r.substr(pos+4);
+    return r;
 }
 static void fetch_data() {
-    static int pc = 0;
-    if (pc++ % 30 == 0) {
-        FILE* f = fopen("/data/adb/skroot_webui_port", "r");
-        if (!f) f = fopen("/data/local/tmp/skroot_webui_port", "r");
-        if (f) { int p=0; if(fscanf(f,"%d",&p)==1 && p>0) g_port=p; fclose(f); }
-    }
-    std::string resp = http_post("127.0.0.1", g_port, "/api/overlay");
-    if (resp.empty()) return;
-    const char* c = resp.c_str();
+    static int pc=0;
+    if(pc++%30==0){FILE* f=fopen("/data/adb/skroot_webui_port","r");
+    if(!f) f=fopen("/data/local/tmp/skroot_webui_port","r");
+    if(f){int p=0;if(fscanf(f,"%d",&p)==1&&p>0)g_port=p;fclose(f);}}
+    std::string resp=http_post("127.0.0.1",g_port,"/api/overlay");
+    if(resp.empty()) return;
+    const char* c=resp.c_str();
     pthread_mutex_lock(&g_data_mtx);
     g_data.cpu_total=jnum(c,"cpu_total"); g_data.gpu_pct=jnum(c,"gpu_pct");
     g_data.power_mw=jnum(c,"power_mw"); g_data.bat_level=(int)jnum(c,"bat_level");
@@ -107,118 +99,66 @@ static void fetch_data() {
     while(*ap&&*ap!=','&&*ap!=']')ap++;}}}
     pthread_mutex_unlock(&g_data_mtx);
 }
-static void* data_thread(void*) { while(g_running){fetch_data();usleep(2000000);} return nullptr; }
+static void* data_thread(void*){while(g_running){fetch_data();usleep(2000000);}return nullptr;}
 
-static const char* status_cn(const char* s) {
-    if(!s||!s[0]) return "--";
-    if(!strcmp(s,"Charging")) return "充电中";
-    if(!strcmp(s,"Discharging")) return "放电中";
-    if(!strcmp(s,"Full")) return "已充满";
-    return s;
-}
-
-// ====== 触摸 - bizinb 方案 ======
-static bool checkDeviceIsTouch(int fd) {
-    uint8_t* bits = nullptr;
-    ssize_t bits_size = 0;
-    bool has_slot=false, has_x=false, has_y=false;
-    struct input_absinfo ai{};
-    while(true) {
-        int res = ioctl(fd, EVIOCGBIT(EV_ABS, bits_size), bits);
-        if(res < bits_size) break;
-        bits_size = res + 16;
-        bits = (uint8_t*)realloc(bits, bits_size*2);
-    }
+// ====== 触摸 ======
+static bool checkTouch(int fd) {
+    uint8_t* bits=nullptr; ssize_t bs=0;
+    bool s=false,x=false,y=false; struct input_absinfo ai{};
+    while(true){int r=ioctl(fd,EVIOCGBIT(EV_ABS,bs),bits);if(r<bs)break;bs=r+16;bits=(uint8_t*)realloc(bits,bs*2);}
     if(!bits) return false;
-    for(int j=0; j<bits_size; j++)
-        for(int k=0; k<8; k++)
-            if(bits[j]&(1<<k)) {
-                int code = j*8+k;
-                if(ioctl(fd, EVIOCGABS(code), &ai)==0) {
-                    if(code==ABS_MT_SLOT) has_slot=true;
-                    if(code==ABS_MT_POSITION_X) has_x=true;
-                    if(code==ABS_MT_POSITION_Y) has_y=true;
-                }
-            }
-    free(bits);
-    return has_slot && has_x && has_y;
+    for(int j=0;j<bs;j++) for(int k=0;k<8;k++) if(bits[j]&(1<<k)){
+        int code=j*8+k; if(ioctl(fd,EVIOCGABS(code),&ai)==0){
+            if(code==ABS_MT_SLOT) s=true; if(code==ABS_MT_POSITION_X) x=true; if(code==ABS_MT_POSITION_Y) y=true;}}
+    free(bits); return s&&x&&y;
 }
-
-static int find_touch_device() {
-    char path[64];
-    for(int i=0; i<=15; i++) {
-        snprintf(path, sizeof(path), "/dev/input/event%d", i);
-        int fd = open(path, O_RDWR);
-        if(fd<0) continue;
-        if(!checkDeviceIsTouch(fd)) { close(fd); continue; }
-        struct input_absinfo xi{}, yi{};
-        ioctl(fd, EVIOCGABS(ABS_MT_POSITION_X), &xi);
-        ioctl(fd, EVIOCGABS(ABS_MT_POSITION_Y), &yi);
-        if(xi.maximum<=0||yi.maximum<=0) { close(fd); continue; }
-        g_scale_x = (float)g_screen_w / (float)xi.maximum;
-        g_scale_y = (float)g_screen_h / (float)yi.maximum;
-        LOGI("touch: %s x[0-%d] y[0-%d] scale=%.3f,%.3f", path, xi.maximum, yi.maximum, g_scale_x, g_scale_y);
-        return fd;
-    }
+static int findTouch() {
+    char p[64]; for(int i=0;i<=15;i++){
+        snprintf(p,sizeof(p),"/dev/input/event%d",i); int fd=open(p,O_RDWR); if(fd<0) continue;
+        if(!checkTouch(fd)){close(fd);continue;}
+        struct input_absinfo xi{},yi{}; ioctl(fd,EVIOCGABS(ABS_MT_POSITION_X),&xi); ioctl(fd,EVIOCGABS(ABS_MT_POSITION_Y),&yi);
+        if(xi.maximum<=0||yi.maximum<=0){close(fd);continue;}
+        g_scale_x=(float)g_screen_w/(float)xi.maximum; g_scale_y=(float)g_screen_h/(float)yi.maximum;
+        LOGI("touch: %s x[0-%d] y[0-%d]",p,xi.maximum,yi.maximum); return fd;}
     return -1;
 }
-
-// bizinb 坐标变换（orientation=0 时）
-static void transform_coords(float raw_x, float raw_y, float* out_x, float* out_y) {
-    // raw_x/raw_y 已经是屏幕坐标（经过 scale）
-    float x = raw_x, y = raw_y;
-    float sw = (float)g_screen_w, sh = (float)g_screen_h;
-    switch(g_orientation) {
-        case 0: *out_x = x; *out_y = y; break;
-        case 1: *out_x = y; *out_y = sw - x; break;
-        case 2: *out_x = sw - x; *out_y = sh - y; break;
-        case 3: *out_x = sh - y; *out_y = x; break;
-        default: *out_x = x; *out_y = y; break;
-    }
-}
-
 static void* touch_thread(void*) {
-    sleep(2);
-    g_touch_fd = find_touch_device();
-    if(g_touch_fd < 0) { LOGE("no touch device"); return nullptr; }
-    LOGI("touch thread started fd=%d", g_touch_fd);
-
-    struct input_event events[64];
-    int cur_x=0, cur_y=0, tracking_id=-1;
-    bool touching = false;
-    ImGuiIO& io = ImGui::GetIO();
-
+    sleep(2); g_touch_fd=findTouch();
+    if(g_touch_fd<0){LOGE("no touch");return nullptr;}
+    LOGI("touch fd=%d",g_touch_fd);
+    struct input_event evs[64]; int cx=0,cy=0,tid=-1; bool touching=false;
+    ImGuiIO& io=ImGui::GetIO();
     while(g_running) {
-        ssize_t n = read(g_touch_fd, events, sizeof(events));
-        if(n <= 0) { usleep(8000); continue; }
-        size_t count = n / sizeof(struct input_event);
-        for(size_t i=0; i<count; i++) {
-            auto& ev = events[i];
-            if(ev.type == EV_ABS) {
-                if(ev.code == ABS_MT_POSITION_X) cur_x = ev.value;
-                else if(ev.code == ABS_MT_POSITION_Y) cur_y = ev.value;
-                else if(ev.code == ABS_MT_TRACKING_ID) {
-                    if(ev.value >= 0 && tracking_id < 0) {
-                        touching = true;
-                        io.AddMouseButtonEvent(0, true);
-                    } else if(ev.value < 0 && tracking_id >= 0) {
-                        touching = false;
-                        io.AddMouseButtonEvent(0, false);
-                    }
-                    tracking_id = ev.value;
-                }
+        ssize_t n=read(g_touch_fd,evs,sizeof(evs)); if(n<=0){usleep(8000);continue;}
+        size_t cnt=n/sizeof(struct input_event);
+        for(size_t i=0;i<cnt;i++){
+            auto& e=evs[i];
+            if(e.type==EV_ABS){
+                if(e.code==ABS_MT_POSITION_X) cx=e.value;
+                else if(e.code==ABS_MT_POSITION_Y) cy=e.value;
+                else if(e.code==ABS_MT_TRACKING_ID){
+                    if(e.value>=0&&tid<0){touching=true;}
+                    else if(e.value<0&&tid>=0){touching=false;io.AddMouseButtonEvent(0,false);}
+                    tid=e.value;}
             }
-            if(ev.type == EV_SYN && ev.code == SYN_REPORT && touching) {
-                float sx = cur_x * g_scale_x;
-                float sy = cur_y * g_scale_y;
-                float fx, fy;
-                transform_coords(sx, sy, &fx, &fy);
-                io.AddMousePosEvent(fx, fy);
+            if(e.type==EV_SYN&&e.code==SYN_REPORT){
+                float fx=cx*g_scale_x, fy=cy*g_scale_y;
+                // 关键：只有触摸在窗口区域内 或 正在拖拽窗口时，才喂给 ImGui
+                bool in_window = (fx>=g_win_x && fx<=g_win_x+g_win_w && fy>=g_win_y && fy<=g_win_y+g_win_h);
+                if(touching && (in_window || g_was_touching_window)) {
+                    if(!g_was_touching_window && in_window) {
+                        io.AddMouseButtonEvent(0, true);
+                        g_was_touching_window = true;
+                    }
+                    io.AddMousePosEvent(fx, fy);
+                } else if(!touching && g_was_touching_window) {
+                    io.AddMouseButtonEvent(0, false);
+                    g_was_touching_window = false;
+                }
             }
         }
     }
-    close(g_touch_fd);
-    return nullptr;
+    close(g_touch_fd); return nullptr;
 }
 
 // ====== UI ======
@@ -228,27 +168,81 @@ static void DrawUI() {
     pthread_mutex_unlock(&g_data_mtx);
 
     ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x*0.02f, io.DisplaySize.y*0.02f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x*0.5f, 0), ImGuiCond_FirstUseEver);
-    ImGui::Begin("SKRoot 功耗监控", &g_running, ImGuiWindowFlags_NoCollapse);
+    float sw = io.DisplaySize.x, sh = io.DisplaySize.y;
+    float margin = sw * 0.02f;
+    ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(sw * 0.5f, 0), ImGuiCond_FirstUseEver);
 
-    ImVec4 pc = d.power_mw>5000 ? ImVec4(1,.3f,.3f,1) : d.power_mw>2000 ? ImVec4(1,.83f,.3f,1) : ImVec4(.3f,.9f,.3f,1);
-    ImGui::TextColored(pc, "⚡ ");
-    ImGui::SameLine();
-    ImGui::Text(d.power_mw>=1000 ? "%.2f W" : "%.0f mW", d.power_mw>=1000 ? d.power_mw/1000 : d.power_mw);
-    ImGui::SameLine(0,16); ImGui::Text("🔋 %d%%", d.bat_level);
-    if(d.bat_temp>0) { ImGui::SameLine(0,16); ImGui::Text("🌡%.1f°C", d.bat_temp/10.0); }
-    ImGui::TextColored(ImVec4(.6f,.6f,.6f,1), "%s", status_cn(d.bat_status));
+    // 圆角半透明风格
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 12));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.08f, 0.12f, 0.85f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.3f, 0.3f, 0.4f, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.25f, 0.55f, 0.95f, 0.6f));
+
+    ImGui::Begin("##SKRootMonitor", &g_running,
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar);
+
+    // 记录窗口位置给触摸线程
+    g_win_x = ImGui::GetWindowPos().x;
+    g_win_y = ImGui::GetWindowPos().y;
+    g_win_w = ImGui::GetWindowSize().x;
+    g_win_h = ImGui::GetWindowSize().y;
+
+    // 标题
+    ImGui::TextColored(ImVec4(0.3f, 0.7f, 1.0f, 1.0f), "⚡ SKRoot 功耗监控");
+    ImGui::Spacing();
+
+    // 功率卡片
+    ImVec4 pc = d.power_mw>5000 ? ImVec4(1,.4f,.4f,1) : d.power_mw>2000 ? ImVec4(1,.85f,.4f,1) : ImVec4(.4f,.95f,.4f,1);
+    ImGui::TextColored(pc, "%.0f mW", d.power_mw);
+    ImGui::SameLine(0, 20);
+    ImGui::TextColored(ImVec4(.8f,.8f,.8f,1), "🔋 %d%%", d.bat_level);
+    if(d.bat_temp>0) {
+        ImGui::SameLine(0, 16);
+        ImGui::TextColored(ImVec4(.9f,.7f,.5f,1), "🌡%.1f°", d.bat_temp/10.0);
+    }
+
+    // 状态行
+    ImGui::TextColored(ImVec4(.5f,.5f,.55f,1), "%s", d.bat_status[0] ? d.bat_status : "--");
+    ImGui::Spacing();
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(.5f,.8f,.75f,1), "CPU %.1f%%", d.cpu_total);
-    if(d.cpu_core_count>0){ImGui::SameLine();ImGui::Text("[");
-    for(int i=0;i<d.cpu_core_count;i++){ImGui::SameLine(0,2);ImGui::Text("%.0f",d.cpu_cores[i]);}
-    ImGui::SameLine();ImGui::Text("]");}
-    if(d.gpu_pct>=0){ImGui::SameLine(0,16);ImGui::TextColored(ImVec4(.8f,.6f,.85f,1),"GPU %.1f%%",d.gpu_pct);}
+    ImGui::Spacing();
+
+    // CPU/GPU 行
+    ImGui::TextColored(ImVec4(.5f,.85f,.75f,1), "CPU");
+    ImGui::SameLine(60);
+    ImGui::Text("%.1f%%", d.cpu_total);
+    if(d.gpu_pct>=0) {
+        ImGui::SameLine(0, 20);
+        ImGui::TextColored(ImVec4(.8f,.6f,.9f,1), "GPU");
+        ImGui::SameLine(ImGui::GetCursorPosX()+20);
+        ImGui::Text("%.1f%%", d.gpu_pct);
+    }
+
+    // 核心详情（紧凑一行）
+    if(d.cpu_core_count>0) {
+        ImGui::TextColored(ImVec4(.4f,.4f,.45f,1), "核");
+        ImGui::SameLine(30);
+        for(int i=0;i<d.cpu_core_count;i++){
+            if(i>0) { ImGui::SameLine(0, 4); ImGui::TextColored(ImVec4(.3f,.3f,.35f,1), "|"); ImGui::SameLine(0, 4); }
+            ImGui::Text("%.0f", d.cpu_cores[i]);
+        }
+    }
+    ImGui::Spacing();
     ImGui::Separator();
+    ImGui::Spacing();
+
+    // 前台应用
     const char* app = d.fg_app[0]?(strrchr(d.fg_app,'.')?strrchr(d.fg_app,'.')+1:d.fg_app):"--";
-    ImGui::Text("📱 %s", app);
-    if(d.fg_cpu>0||d.fg_mem>0){ImGui::SameLine();ImGui::TextColored(ImVec4(.5f,.5f,.5f,1),"CPU %.1f%% %dM",d.fg_cpu,d.fg_mem);}
+    ImGui::TextColored(ImVec4(.9f,.9f,.9f,1), "📱 %s", app);
+    if(d.fg_cpu>0||d.fg_mem>0) {
+        ImGui::SameLine(0, 16);
+        ImGui::TextColored(ImVec4(.5f,.5f,.55f,1), "%.1f%% %dM", d.fg_cpu, d.fg_mem);
+    }
+
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(2);
     ImGui::End();
 }
 
@@ -258,35 +252,39 @@ int main() {
     if(g_logfp) dup2(fileno(g_logfp), STDERR_FILENO);
     struct sigaction sa{}; sa.sa_sigaction=sig_handler; sa.sa_flags=SA_SIGINFO;
     sigaction(SIGSEGV,&sa,nullptr); sigaction(SIGABRT,&sa,nullptr); sigaction(SIGBUS,&sa,nullptr);
-    LOGI("=== overlay pid=%d ===", getpid());
+    LOGI("=== pid=%d ===", getpid());
 
     auto di = android::ANativeWindowCreator::GetDisplayInfo();
     g_screen_w = di.width>0?di.width:1080;
     g_screen_h = di.height>0?di.height:2400;
-    g_orientation = di.orientation;
-    LOGI("display: %dx%d orient=%d", g_screen_w, g_screen_h, g_orientation);
+    LOGI("display: %dx%d orient=%d", g_screen_w, g_screen_h, di.orientation);
 
     auto* win = android::ANativeWindowCreator::Create("SKRootOverlay", g_screen_w, g_screen_h);
-    if(!win){LOGE("ANativeWindow failed");return 1;}
+    if(!win){LOGE("window failed");return 1;}
     LOGI("window=%p", win);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    // 自定义深色主题
     ImGui::StyleColorsDark();
-    float scale = g_screen_w / 540.0f;
-    ImGui::GetStyle().ScaleAllSizes(scale);
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.ScaleAllSizes(g_screen_w / 540.0f);
+    style.Colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.08f, 0.12f, 1.0f);
+    style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.3f, 0.6f, 1.0f);
+    style.Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.08f, 0.08f, 0.12f, 0.6f);
+
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2((float)g_screen_w, (float)g_screen_h);
-    io.FontGlobalScale = scale;
+    io.FontGlobalScale = g_screen_w / 540.0f;
 
     VulkanGraphics vk;
     if(!vk.Init(win, g_screen_w, g_screen_h)){LOGE("Vulkan failed");return 1;}
-    LOGI("Vulkan OK, %d FPS", g_fps);
+    LOGI("Vulkan OK %d FPS", g_fps);
     ImGui_ImplAndroid_Init(win);
 
-    pthread_t data_tid, touch_tid;
-    pthread_create(&data_tid, nullptr, data_thread, nullptr);
-    pthread_create(&touch_tid, nullptr, touch_thread, nullptr);
+    pthread_t dt, tt;
+    pthread_create(&dt, nullptr, data_thread, nullptr);
+    pthread_create(&tt, nullptr, touch_thread, nullptr);
 
     while(g_running) {
         usleep(1000000/g_fps);
@@ -298,7 +296,7 @@ int main() {
         vk.Render(ImGui::GetDrawData());
     }
     g_running = false;
-    pthread_join(data_tid, nullptr);
+    pthread_join(dt, nullptr);
     vk.Shutdown();
     ImGui_ImplAndroid_Shutdown();
     ImGui::DestroyContext();
