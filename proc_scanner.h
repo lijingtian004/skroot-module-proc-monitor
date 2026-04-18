@@ -233,3 +233,12 @@ void power_tracker_start();     // 启动后台采样线程（10秒一次）
 void power_tracker_stop();      // 停止后台采样
 void power_tracker_sample();    // 采样一次（后台线程周期调用）
 std::vector<AppPowerInfo> power_tracker_get_top(int n);  // 取 top N 功耗应用
+
+// ============ 通知栏悬浮功耗显示 ============
+
+// 启动通知栏功耗显示线程（每5秒更新一次通知）
+void notification_overlay_start();
+
+// 停止通知栏功耗显示
+void notification_overlay_stop();
+
