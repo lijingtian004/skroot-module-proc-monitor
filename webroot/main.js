@@ -192,14 +192,18 @@ function renderDrainInfo() {
   // 列表（两种模式共用，功耗字段不同）
   // 按当前模式重新排序
   if (drainMode === 'system') {
-    // 整机模式：只显示曾在前台的 App（avg_battery_mw > 0）
-    drainData.sort((a, b) => (b.avg_battery_mw || 0) - (a.avg_battery_mw || 0));
-    const filtered = drainData.filter(a => (a.avg_battery_mw || 0) > 0);
+    // 整机模式：优先用 avg_battery_mw，为0时 fallback 到 power_mw
+    drainData.sort((a, b) => {
+      const amw = (a.avg_battery_mw || 0) || (a.power_mw || 0);
+      const bmw = (b.avg_battery_mw || 0) || (b.power_mw || 0);
+      return bmw - amw;
+    });
+    const filtered = drainData.filter(a => ((a.avg_battery_mw || 0) || (a.power_mw || 0)) > 0);
     if (filtered.length) drainData = filtered;
   }
   let html = '';
   drainData.forEach((a, i) => {
-    const mw = drainMode === 'system' ? (a.avg_battery_mw || 0) : (a.power_mw || 0);
+    const mw = drainMode === 'system' ? ((a.avg_battery_mw || 0) || (a.power_mw || 0)) : (a.power_mw || 0);
     const color = mw > 1500 ? 'var(--red)' : mw > 500 ? 'var(--amber)' : 'var(--green)';
     const name = esc(a.label || a.package || `UID ${a.uid}`);
     const watts = (mw / 1000).toFixed(2);

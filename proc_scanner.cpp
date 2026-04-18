@@ -749,7 +749,7 @@ static uid_t find_foreground_uid() {
             }
         }
         fclose(f);
-        if (uid == (uid_t)-1 || uid < 10000) continue;
+        if (uid == (uid_t)-1) continue;
 
         int oom = read_oom_score_adj(pid);
         if (oom < fg_oom) {
@@ -1463,11 +1463,11 @@ void power_tracker_sample() {
         g_power_cache[uid] = info;
     }
 
-    // 记录本次采样到历史环形缓冲区（只记前台 App）
-    if (g_battery_power_mw > 0) {
+    // 记录本次采样到历史环形缓冲区（记录前台 App，即使无电池功率也记 UID）
+    {
         uid_t fg_uid = find_foreground_uid();
         SampleEntry& entry = g_sample_history[g_sample_history_idx];
-        entry.battery_mw = g_battery_power_mw;
+        entry.battery_mw = g_battery_power_mw > 0 ? g_battery_power_mw : 0;
         entry.uid_count = 0;
         if (fg_uid != (uid_t)-1 && entry.uid_count < MAX_TRACKED_UIDS) {
             entry.uids[entry.uid_count++] = fg_uid;
