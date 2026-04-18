@@ -16,6 +16,7 @@
 #include <string>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -24,6 +25,20 @@
 #define LOG_TAG "SKRootOverlay"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// Signal handler for segfault debugging
+static void sig_handler(int sig, siginfo_t* info, void* ctx) {
+    LOGE("CRASH: signal %d at address %p", sig, info->si_addr);
+    _exit(1);
+}
+static void install_signal_handlers() {
+    struct sigaction sa{};
+    sa.sa_sigaction = sig_handler;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGABRT, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
+}
 
 static int g_port = 10273;
 static int g_fps = 60;
@@ -181,7 +196,15 @@ static void DrawUI() {
 }
 
 int main() {
+    install_signal_handlers();
     LOGI("overlay starting, pid=%d", getpid());
+    LOGI("checking dlopen libgui.so...");
+    auto test_libgui = dlopen("/system/lib64/libgui.so", RTLD_LAZY);
+    LOGI("dlopen libgui.so: %p", (void*)test_libgui);
+    if (test_libgui) dlclose(test_libgui);
+    auto test_libutils = dlopen("/system/lib64/libutils.so", RTLD_LAZY);
+    LOGI("dlopen libutils.so: %p", (void*)test_libutils);
+    if (test_libutils) dlclose(test_libutils);
 
     auto di = android::ANativeWindowCreator::GetDisplayInfo();
     int sw = di.width > 0 ? di.width : 1080;
