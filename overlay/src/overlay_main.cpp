@@ -279,11 +279,18 @@ static void* touch_thread(void*) {
         else if(e.code==ABS_MT_POSITION_Y)cy=e.value;
         else if(e.code==ABS_MT_TRACKING_ID){
             if(e.value>=0&&tid<0){
-                // 按下：检查是否在窗口区域内
+                // 按下：用和渲染完全一致的窗口尺寸
                 float sx=cx*g_scale_x, sy=cy*g_scale_y;
                 int ww=g_screen_w*0.45f;
-                int wh=ww*0.5f; // 近似窗口高度
-                if(sx>=g_win_x && sx<=g_win_x+ww && sy>=g_win_y && sy<=g_win_y+wh){
+                int padding=ww*0.05f;
+                int font_scale=ww/140;
+                if(font_scale<2)font_scale=2;
+                int line_h=8*font_scale;
+                int wh=padding*2+line_h*6+8*font_scale;
+                bool inside=(sx>=g_win_x && sx<=g_win_x+ww && sy>=g_win_y && sy<=g_win_y+wh);
+                LOGI("TOUCH DOWN raw(%d,%d) screen(%.0f,%.0f) win(%.0f,%.0f %dx%d) inside=%d",
+                     cx,cy,sx,sy,g_win_x,g_win_y,ww,wh,inside?1:0);
+                if(inside){
                     dragging=true;
                     g_drag_ox=sx-g_win_x;
                     g_drag_oy=sy-g_win_y;
@@ -292,14 +299,21 @@ static void* touch_thread(void*) {
                 }
                 touching=true;
             }
-            else if(e.value<0&&tid>=0){touching=false;dragging=false;}
+            else if(e.value<0&&tid>=0){
+                LOGI("TOUCH UP touching=%d dragging=%d",touching?1:0,dragging?1:0);
+                touching=false;dragging=false;
+            }
             tid=e.value;}}
         if(e.type==EV_SYN&&e.code==SYN_REPORT&&touching&&dragging){
             float sx=cx*g_scale_x, sy=cy*g_scale_y;
+            float old_x=g_win_x, old_y=g_win_y;
             g_win_x=sx-g_drag_ox; g_win_y=sy-g_drag_oy;
             if(g_win_x<0)g_win_x=0; if(g_win_y<0)g_win_y=0;
             if(g_win_x>g_screen_w-200)g_win_x=g_screen_w-200;
             if(g_win_y>g_screen_h-100)g_win_y=g_screen_h-100;
+            // 只在实际移动时打印
+            if(g_win_x!=old_x||g_win_y!=old_y)
+                LOGI("DRAG -> (%.0f,%.0f)",g_win_x,g_win_y);
         }}}close(g_touch_fd);return nullptr;
 }
 
