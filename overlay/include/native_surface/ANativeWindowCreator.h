@@ -239,23 +239,42 @@ public:
             width = di.width; height = di.height;
         }
 
-        // 1. Get pre-initialized SurfaceComposerClient via getDefault()
-        if (!F.SCC_getDefault) {
-            LOGE("SCC::getDefault is NULL"); return nullptr;
+        // 1. Get pre-initialized SurfaceComposerClient
+        // Try getDefault() first, fallback to parametrized constructor
+        char scc_buf[1024] = {0};
+        void* scc = nullptr;
+
+        if (F.SCC_getDefault) {
+            LOGI("calling SCC::getDefault()...");
+            scc = F.SCC_getDefault();
+            LOGI("getDefault returned: %p", scc);
         }
-        LOGI("calling SCC::getDefault()...");
-        void* scc = F.SCC_getDefault();
-        LOGI("getDefault returned: %p", scc);
+
+        // Fallback: use parametrized constructor with null ISurfaceComposerClient
         if (!scc) {
-            LOGE("getDefault failed, trying manual constructor...");
-            // Fallback: manual constructor
-            char scc_buf[1024] = {0};
-            if (F.SurfaceComposerClient__Constructor) {
+            LOGI("getDefault unavailable/null, trying parametrized constructor...");
+            // Look for constructor with ISurfaceComposerClient param
+            auto scc_ctor_param = (void(*)(void*, void*))dlsym(dlopen("/system/lib64/libgui.so", RTLD_LAZY),
+                "_ZN7android21SurfaceComposerClientC1ERKNS_2spINS_3gui22ISurfaceComposerClientEEE");
+            LOGI("dlsym SCC::C1(ISurfaceComposerClient): %p", (void*)scc_ctor_param);
+            if (scc_ctor_param) {
+                void* null_client = nullptr;
+                scc_ctor_param(scc_buf, &null_client);
+                scc = scc_buf;
+                LOGI("parametrized constructor done, scc=%p", scc);
+            } else if (F.SurfaceComposerClient__Constructor) {
+                // Last resort: default constructor
+                LOGI("using default C2 constructor...");
                 F.SurfaceComposerClient__Constructor(scc_buf);
                 if (F.RefBase__IncStrong) F.RefBase__IncStrong(scc_buf, scc_buf);
                 scc = scc_buf;
+                LOGI("default constructor done, scc=%p", scc);
             }
-            if (!scc) return nullptr;
+        }
+
+        if (!scc) {
+            LOGE("all SCC init methods failed");
+            return nullptr;
         }
 
         // 2. Construct String8 for name
