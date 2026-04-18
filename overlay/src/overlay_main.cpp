@@ -21,6 +21,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <android/log.h>
+#include <linux/input.h>
+#include <fcntl.h>
+#include <dirent.h>
 
 #define LOG_TAG "SKRootOverlay"
 #define LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__); if(g_logfp) { fprintf(g_logfp, "[I] " __VA_ARGS__); fprintf(g_logfp, "\n"); fflush(g_logfp); } } while(0)
@@ -160,9 +163,10 @@ static void DrawUI() {
     OverlayData d = g_data;
     pthread_mutex_unlock(&g_data_mtx);
 
-    ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(300, 0), ImGuiCond_FirstUseEver);
-    ImGui::Begin("SKRoot 功耗监控", &g_running, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.05f, io.DisplaySize.y * 0.05f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x * 0.4f, 0), ImGuiCond_FirstUseEver);
+    ImGui::Begin("SKRoot 功耗监控", &g_running, ImGuiWindowFlags_NoCollapse);
 
     // 功率
     ImVec4 pc = d.power_mw > 5000 ? ImVec4(1,.3f,.3f,1) : d.power_mw > 2000 ? ImVec4(1,.83f,.3f,1) : ImVec4(.3f,.9f,.3f,1);
@@ -196,6 +200,73 @@ static void DrawUI() {
     ImGui::End();
 }
 
+// ========== 触摸输入 ==========
+static int g_touch_fd = -1;
+static int g_screen_w = 1080, g_screen_h = 2400;
+static int g_abs_x_min = 0, g_abs_x_max = 0, g_abs_y_min = 0, g_abs_y_max = 0;
+
+static int find_touch_device() {
+    DIR* dir = opendir("/dev/input/");
+    if (!dir) return -1;
+    struct dirent* de;
+    while ((de = readdir(dir)) != NULL) {
+        if (strncmp(de->d_name, "event", 5) != 0) continue;
+        char path[256];
+        snprintf(path, sizeof(path), "/dev/input/%s", de->d_name);
+        int fd = open(path, O_RDONLY | O_NONBLOCK);
+        if (fd < 0) continue;
+        unsigned long evbits[8] = {};
+        ioctl(fd, EVIOCGBIT(0, sizeof(evbits)), evbits);
+        if (!(evbits[0] & (1 << EV_ABS))) { close(fd); continue; }
+        unsigned long absbits[4] = {};
+        ioctl(fd, EVIOCGBIT(EV_ABS, sizeof(absbits)), absbits);
+        if (!(absbits[0] & (1 << ABS_MT_POSITION_X))) { close(fd); continue; }
+        struct input_absinfo xi{}, yi{};
+        ioctl(fd, EVIOCGABS(ABS_MT_POSITION_X), &xi);
+        ioctl(fd, EVIOCGABS(ABS_MT_POSITION_Y), &yi);
+        g_abs_x_min = xi.minimum; g_abs_x_max = xi.maximum;
+        g_abs_y_min = yi.minimum; g_abs_y_max = yi.maximum;
+        LOGI("touch device: %s (%d-%d, %d-%d)", path, xi.minimum, xi.maximum, yi.minimum, yi.maximum);
+        closedir(dir);
+        return fd;
+    }
+    closedir(dir);
+    return -1;
+}
+
+static void* touch_thread(void*) {
+    g_touch_fd = find_touch_device();
+    if (g_touch_fd < 0) { LOGE("no touch device found"); return nullptr; }
+    
+    struct input_event ev;
+    int cur_x = 0, cur_y = 0, tracking_id = -1;
+    bool touching = false;
+    ImGuiIO& io = ImGui::GetIO();
+    
+    while (g_running) {
+        if (read(g_touch_fd, &ev, sizeof(ev)) != sizeof(ev)) {
+            usleep(4000);
+            continue;
+        }
+        if (ev.type == EV_ABS) {
+            if (ev.code == ABS_MT_POSITION_X || ev.code == ABS_X) cur_x = ev.value;
+            else if (ev.code == ABS_MT_POSITION_Y || ev.code == ABS_Y) cur_y = ev.value;
+            else if (ev.code == ABS_MT_TRACKING_ID) {
+                if (ev.value >= 0 && tracking_id < 0) { touching = true; io.AddMouseButtonEvent(0, true); }
+                else if (ev.value < 0 && tracking_id >= 0) { touching = false; io.AddMouseButtonEvent(0, false); }
+                tracking_id = ev.value;
+            }
+        }
+        if (ev.type == EV_SYN && ev.code == SYN_REPORT && touching) {
+            float fx = (float)(cur_x - g_abs_x_min) / (float)(g_abs_x_max - g_abs_x_min) * g_screen_w;
+            float fy = (float)(cur_y - g_abs_y_min) / (float)(g_abs_y_max - g_abs_y_min) * g_screen_h;
+            io.AddMousePosEvent(fx, fy);
+        }
+    }
+    close(g_touch_fd);
+    return nullptr;
+}
+
 int main() {
     g_logfp = fopen("/data/local/tmp/overlay.log", "w");
     if (g_logfp) {
@@ -215,6 +286,7 @@ int main() {
     auto di = android::ANativeWindowCreator::GetDisplayInfo();
     int sw = di.width > 0 ? di.width : 1080;
     int sh = di.height > 0 ? di.height : 2400;
+    g_screen_w = sw; g_screen_h = sh;
     LOGI("display: %dx%d (raw: %dx%d, orient=%d)", sw, sh, di.width, di.height, di.orientation);
 
     auto* win = android::ANativeWindowCreator::Create("SKRootOverlay", sw, sh);
@@ -235,6 +307,8 @@ int main() {
 
     pthread_t tid;
     pthread_create(&tid, nullptr, data_thread, nullptr);
+    pthread_t touch_tid;
+    pthread_create(&touch_tid, nullptr, touch_thread, nullptr);
 
     LOGI("entering render loop at %d FPS", g_fps);
 
