@@ -234,8 +234,8 @@ public:
             width = di.width; height = di.height;
         }
 
-        // 1. Construct SurfaceComposerClient
-        char scc_buf[256] = {0};
+        // 1. Construct SurfaceComposerClient (1024 bytes like AndroidSurfaceImgui)
+        char scc_buf[1024] = {0};
         if (!F.SurfaceComposerClient__Constructor) {
             LOGE("SCC::Constructor is NULL"); return nullptr;
         }
@@ -258,8 +258,8 @@ public:
             strncpy(name_buf, name, sizeof(name_buf)-1);
         }
 
-        // 3. Construct LayerMetadata
-        char lm_buf[128] = {0};
+        // 3. Construct LayerMetadata (1024 bytes like AndroidSurfaceImgui)
+        char lm_buf[1024] = {0};
         void* lm_ptr = nullptr;
         if (F.LayerMetadata__ctor) {
             F.LayerMetadata__ctor(lm_buf);
@@ -309,7 +309,7 @@ public:
 
         // 6. Apply Transaction
         if (F.systemVersion >= 11 && F.Transaction__Constructor) {
-            char txn_buf[256] = {0};
+            char txn_buf[1024] = {0};
             F.Transaction__Constructor(txn_buf);
             LOGI("Transaction constructed");
 
