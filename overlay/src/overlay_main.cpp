@@ -298,7 +298,8 @@ static void* touch_thread(void*) {
                     if(font_scale<2)font_scale=2;
                     int line_h=8*font_scale;
                     int wh=padding*2+line_h*6+8*font_scale;
-                    bool inside=(sx>=g_win_x && sx<=g_win_x+ww && sy>=g_win_y && sy<=g_win_y+wh);
+                    int hit_pad=20; // 触摸区域比渲染大20px
+                    bool inside=(sx>=g_win_x-hit_pad && sx<=g_win_x+ww+hit_pad && sy>=g_win_y-hit_pad && sy<=g_win_y+wh+hit_pad);
                     LOGI("TOUCH DOWN raw(%d,%d) screen(%.0f,%.0f) win(%.0f,%.0f %dx%d) inside=%d",
                          cx,cy,sx,sy,g_win_x,g_win_y,ww,wh,inside?1:0);
                     if(inside){
