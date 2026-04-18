@@ -247,11 +247,14 @@ public:
         char scc_buf[4096] = {0};
         void* scc = nullptr;
 
-        fprintf(stderr, "[Create-RAW] SCC_getDefault=%p\n", (void*)F.SCC_getDefault); fflush(stderr);
-        if (F.SCC_getDefault) {
+        fprintf(stderr, "[Create-RAW] SCC_getDefault=%p ver=%zu\n", (void*)F.SCC_getDefault, F.systemVersion); fflush(stderr);
+        // Android 15: getDefault() 会 crash，跳过
+        if (F.SCC_getDefault && F.systemVersion < 15) {
             fprintf(stderr, "[Create-RAW] calling getDefault()...\n"); fflush(stderr);
             scc = F.SCC_getDefault();
             fprintf(stderr, "[Create-RAW] getDefault => %p\n", scc); fflush(stderr);
+        } else if (F.SCC_getDefault) {
+            fprintf(stderr, "[Create-RAW] skipping getDefault on Android %zu\n", F.systemVersion); fflush(stderr);
         }
 
         if (!scc) {
