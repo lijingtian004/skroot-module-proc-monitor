@@ -202,6 +202,8 @@ static std::string build_overlay_json() {
 
 // ============ 悬浮窗进程管理 ============
 
+static std::string g_module_dir;
+
 static pid_t g_overlay_pid = -1;
 
 static bool is_overlay_running() {
@@ -299,8 +301,6 @@ static void stop_overlay() {
 }
 
 // ============ 模块入口 ============
-
-static std::string g_module_dir;
 
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
     printf("[module_proc_monitor] starting...\n");
