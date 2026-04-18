@@ -268,7 +268,7 @@ static void DrawUI() {
 
 // ====== MAIN ======
 int main() {
-    g_logfp = fopen("/data/adb/modules/skroot_module_proc_monitor/overlay.log", "w");
+    g_logfp = fopen("/data/adb/overlay.log", "w");
     if (g_logfp) { dup2(fileno(g_logfp), STDERR_FILENO); }
     install_signal_handlers();
     LOGI("=== overlay starting, pid=%d, uid=%d ===", getpid(), getuid());
