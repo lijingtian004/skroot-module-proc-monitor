@@ -21,6 +21,9 @@ target_include_directories(skroot_overlay PRIVATE
     ${CMAKE_SOURCE_DIR}/include/native_surface
 )
 
+# 关掉栈保护，bizinb的头文件有大栈对象
+target_compile_options(skroot_overlay PRIVATE -fno-stack-protector)
+
 find_library(LOG_LIB log)
 find_library(ANDROID_LIB android)
 find_library(VULKAN_LIB vulkan)
