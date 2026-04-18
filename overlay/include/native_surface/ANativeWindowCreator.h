@@ -87,22 +87,28 @@ namespace detail {
 
             if (systemVersion >= 14) {
                 auto ids_fn = (std::vector<uint64_t>(*)())dlsym(libgui, "_ZN7android21SurfaceComposerClient21getPhysicalDisplayIdsEv");
+                LOGI("dlsym getPhysicalDisplayIds: %p", (void*)ids_fn);
                 if (ids_fn) {
                     auto token_fn = (sp<void>(*)(uint64_t))dlsym(libgui, "_ZN7android21SurfaceComposerClient23getPhysicalDisplayTokenENS_17PhysicalDisplayIdE");
+                    LOGI("dlsym getPhysicalDisplayToken: %p", (void*)token_fn);
                     SurfaceComposerClient__GetPhysicalDisplayIds = ids_fn;
                     SurfaceComposerClient__GetPhysicalDisplayToken = token_fn;
                 }
                 // Also try getInternalDisplayToken for fallback
                 SurfaceComposerClient__GetInternalDisplayToken = (sp<void>(*)())dlsym(libgui, "_ZN7android21SurfaceComposerClient23getInternalDisplayTokenEv");
+                LOGI("dlsym getInternalDisplayToken: %p", (void*)SurfaceComposerClient__GetInternalDisplayToken);
             } else if (systemVersion >= 10) {
                 SurfaceComposerClient__GetInternalDisplayToken = (sp<void>(*)())dlsym(libgui, "_ZN7android21SurfaceComposerClient23getInternalDisplayTokenEv");
+                LOGI("dlsym getInternalDisplayToken (<14): %p", (void*)SurfaceComposerClient__GetInternalDisplayToken);
             }
 
             if (systemVersion >= 11) {
                 SurfaceComposerClient__GetDisplayState = (int32_t(*)(sp<void>&, DisplayState*))dlsym(libgui, "_ZN7android21SurfaceComposerClient15getDisplayStateERKNS_2spINS_7IBinderEEEPNS_2ui12DisplayStateE");
+                LOGI("dlsym getDisplayState: %p", (void*)SurfaceComposerClient__GetDisplayState);
             }
 
             SurfaceComposerClient__Constructor_Ptr = (void*(*)(void*))dlsym(libgui, "_ZN7android21SurfaceComposerClientC2Ev");
+            LOGI("dlsym Constructor_Ptr: %p", (void*)SurfaceComposerClient__Constructor_Ptr);
 
             if (systemVersion >= 14) {
                 SurfaceComposerClient__CreateSurface = (sp<void>(*)(void*, const char*, uint32_t, uint32_t, int32_t, uint32_t, void*, void*, uint32_t*))dlsym(libgui, "_ZN7android21SurfaceComposerClient13createSurfaceERKNS_7String8EjjiiRKNS_2spINS_7IBinderEEENS_3gui13LayerMetadataEPj");
@@ -146,8 +152,18 @@ public:
                 LOGI("trying getInternalDisplayToken (Android %zu)", F.systemVersion);
                 display = F.SurfaceComposerClient__GetInternalDisplayToken();
                 LOGI("GetInternalDisplayToken result: ptr=%p", display.get());
+            } else {
+                LOGI("getInternalDisplayToken is NULL, skip");
             }
-            // fallback to physical display ids
+            // Android 15+: getPhysicalDisplayToken ABI changed, skip to avoid crash
+            if (!display.get() && F.systemVersion >= 15) {
+                LOGI("Android %zu detected, skip getPhysicalDisplayToken (ABI incompatible), use defaults", F.systemVersion);
+                info.width = 1080;
+                info.height = 2400;
+                info.orientation = 0;
+                return info;
+            }
+            // Android 14 fallback to physical display ids
             if (!display.get() && F.SurfaceComposerClient__GetPhysicalDisplayIds) {
                 LOGI("fallback to GetPhysicalDisplayIds");
                 auto ids = F.SurfaceComposerClient__GetPhysicalDisplayIds();
@@ -155,25 +171,33 @@ public:
                 if (!ids.empty()) {
                     LOGI("display ids[0]=%llu", (unsigned long long)ids[0]);
                     if (F.SurfaceComposerClient__GetPhysicalDisplayToken) {
+                        LOGI("calling GetPhysicalDisplayToken...");
                         display = F.SurfaceComposerClient__GetPhysicalDisplayToken(ids[0]);
-                        LOGI("GetPhysicalDisplayToken result: ptr=%p", display.get());
+                        LOGI("GetPhysicalDisplayToken done, ptr=%p", display.get());
                     } else {
                         LOGE("GetPhysicalDisplayToken is NULL");
                     }
                 }
             }
             if (!display.get()) {
-                LOGE("all display token methods failed on Android %zu", F.systemVersion);
+                LOGE("all display token methods failed on Android %zu, using defaults", F.systemVersion);
+                info.width = 1080;
+                info.height = 2400;
+                info.orientation = 0;
+                return info;
             }
         } else if (F.systemVersion >= 10) {
             display = F.SurfaceComposerClient__GetInternalDisplayToken();
             LOGI("GetInternalDisplayToken: %s", display.get() ? "OK" : "NULL");
         }
 
-        if (!display.get()) { LOGE("display token is NULL"); return info; }
+        if (!display.get()) { LOGE("display token is NULL, using defaults"); info.width=1080; info.height=2400; return info; }
 
+        LOGI("calling GetDisplayState...");
         detail::DisplayState state{};
-        if (F.SurfaceComposerClient__GetDisplayState(display, &state) != 0) return info;
+        auto ds_ret = F.SurfaceComposerClient__GetDisplayState(display, &state);
+        LOGI("GetDisplayState returned: %d", ds_ret);
+        if (ds_ret != 0) { LOGE("GetDisplayState failed, using defaults"); info.width=1080; info.height=2400; return info; }
 
         int32_t pw = state.layerStackSpaceRect.width;
         int32_t ph = state.layerStackSpaceRect.height;
@@ -191,22 +215,33 @@ public:
 
     static ANativeWindow* Create(const char* name, int32_t width = -1, int32_t height = -1) {
         auto& F = detail::Functionals::GetInstance();
+        LOGI("Create(%s) entering, size=%dx%d", name, width, height);
 
         if (width == -1 || height == -1) {
+            LOGI("Create: calling GetDisplayInfo for size...");
             auto di = GetDisplayInfo();
             width = di.width; height = di.height;
+            LOGI("Create: GetDisplayInfo returned %dx%d", width, height);
         }
 
         // Allocate SurfaceComposerClient on stack (constructor writes into it)
         char scc_buf[256] = {0};
         if (F.SurfaceComposerClient__Constructor_Ptr) {
+            LOGI("Create: calling SurfaceComposerClient constructor...");
             F.SurfaceComposerClient__Constructor_Ptr(scc_buf);
+            LOGI("Create: constructor done");
+        } else {
+            LOGE("Create: Constructor_Ptr is NULL!");
         }
 
         // Create surface
         detail::sp<void> surfaceControl;
         if (F.SurfaceComposerClient__CreateSurface) {
+            LOGI("Create: calling CreateSurface(%s, %dx%d)...", name, width, height);
             surfaceControl = F.SurfaceComposerClient__CreateSurface(scc_buf, name, width, height, 0x1, 0x00004000, nullptr, nullptr, nullptr);
+            LOGI("Create: CreateSurface returned ptr=%p", surfaceControl.get());
+        } else {
+            LOGE("Create: CreateSurface is NULL!");
         }
 
         if (!surfaceControl.get()) {
@@ -215,31 +250,41 @@ public:
         }
 
         // Get ANativeWindow from SurfaceControl
+        LOGI("Create: calling GetSurface...");
         detail::sp<detail::Surface> surface;
         if (F.SurfaceControl__GetSurface) {
             surface = F.SurfaceControl__GetSurface(surfaceControl.get());
+            LOGI("Create: GetSurface returned ptr=%p", surface.get());
+        } else {
+            LOGE("Create: GetSurface is NULL!");
         }
 
         auto* window = reinterpret_cast<ANativeWindow*>(surface.get());
         if (!window) {
-            LOGE("GetSurface failed");
+            LOGE("Create: GetSurface failed, window is NULL");
             return nullptr;
         }
 
         // Show the surface via Transaction
+        LOGI("Create: applying Transaction...");
         char txn_buf[256] = {0};
         if (F.SurfaceComposerClient__Transaction__Constructor) {
             F.SurfaceComposerClient__Transaction__Constructor(txn_buf);
             detail::sp<void> scPtr{surfaceControl.get()};
             if (F.SurfaceComposerClient__Transaction__Show) {
                 F.SurfaceComposerClient__Transaction__Show(txn_buf, scPtr);
+                LOGI("Create: Transaction::Show done");
             }
             if (F.SurfaceComposerClient__Transaction__SetTrustedOverlay) {
                 F.SurfaceComposerClient__Transaction__SetTrustedOverlay(txn_buf, scPtr, true);
+                LOGI("Create: Transaction::SetTrustedOverlay done");
             }
             if (F.SurfaceComposerClient__Transaction__Apply) {
-                F.SurfaceComposerClient__Transaction__Apply(txn_buf, false, true);
+                auto ret = F.SurfaceComposerClient__Transaction__Apply(txn_buf, false, true);
+                LOGI("Create: Transaction::Apply returned %d", ret);
             }
+        } else {
+            LOGE("Create: Transaction constructor is NULL!");
         }
 
         // Increment ref count so surface stays alive
