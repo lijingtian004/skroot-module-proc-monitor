@@ -221,37 +221,47 @@ static void start_overlay() {
         return;
     }
 
-    // 从 /proc/self/maps 找到模块 .so 的路径，推导出模块目录
     char module_dir[512] = {0};
-    FILE* maps = fopen("/proc/self/maps", "r");
-    if (maps) {
-        char line[1024];
-        while (fgets(line, sizeof(line), maps)) {
-            char* p = strstr(line, "libmodule_proc_monitor.so");
-            if (p) {
-                // 找到路径（从行首到 .so）
-                char* start = strrchr(line, '/');
-                if (start) {
-                    int len = (int)(start - line);
-                    if (len > 0 && len < (int)sizeof(module_dir)) {
-                        strncpy(module_dir, line, len);
-                        module_dir[len] = 0;
-                        // 去掉行首的地址部分，找到实际路径
-                        char* path_start = strchr(line, '/');
-                        if (path_start) {
-                            len = (int)(start - path_start);
-                            if (len < (int)sizeof(module_dir)) {
-                                strncpy(module_dir, path_start, len);
-                                module_dir[len] = 0;
+
+    // 优先用 g_module_dir（onPrepareCreate 中设置）
+    if (!g_module_dir.empty()) {
+        strncpy(module_dir, g_module_dir.c_str(), sizeof(module_dir) - 1);
+    }
+
+    // 备选：从 /proc/self/maps 找到模块 .so 的路径，推导出模块目录
+    if (!module_dir[0]) {
+        FILE* maps = fopen("/proc/self/maps", "r");
+        if (maps) {
+            char line[1024];
+            while (fgets(line, sizeof(line), maps)) {
+                char* p = strstr(line, "libmodule_proc_monitor.so");
+                if (p) {
+                    // 找到路径（从行首到 .so）
+                    char* start = strrchr(line, '/');
+                    if (start) {
+                        int len = (int)(start - line);
+                        if (len > 0 && len < (int)sizeof(module_dir)) {
+                            strncpy(module_dir, line, len);
+                            module_dir[len] = 0;
+                            // 去掉行首的地址部分，找到实际路径
+                            char* path_start = strchr(line, '/');
+                            if (path_start) {
+                                len = (int)(start - path_start);
+                                if (len < (int)sizeof(module_dir)) {
+                                    strncpy(module_dir, path_start, len);
+                                    module_dir[len] = 0;
+                                }
                             }
                         }
                     }
+                    break;
                 }
-                break;
             }
+            fclose(maps);
         }
-        fclose(maps);
     }
+
+    printf("[overlay] module_dir=%s\n", module_dir);
 
     if (!module_dir[0]) {
         printf("[overlay] cannot determine module directory\n");
@@ -319,6 +329,9 @@ class ProcMonitorWebHandler : public kernel_module::WebUIHttpHandler {
 public:
     void onPrepareCreate(const char* root_key, const char* module_private_dir, uint32_t port) override {
         printf("[proc_monitor] WebUI starting on port %d\n", port);
+
+        // 保存模块目录，供悬浮窗启动使用
+        g_module_dir = module_private_dir;
 
         // 写端口到文件，供悬浮窗应用读取
         FILE* f = fopen("/data/local/tmp/skroot_webui_port", "w");
@@ -526,7 +539,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("2.4.5")
+SKROOT_MODULE_VERSION("2.4.6")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")
