@@ -43,6 +43,7 @@ namespace detail {
         // libgui
         void (*LayerMetadata__ctor)(void*) = nullptr;
         void (*SurfaceComposerClient__Constructor)(void*) = nullptr;
+        void* (*SCC_getDefault)() = nullptr;  // SurfaceComposerClient::getDefault()
         void* (*SurfaceComposerClient__CreateSurface)(void*, void*, uint32_t, uint32_t, int32_t, uint32_t, void**, void*, uint32_t*) = nullptr;
         sp<void> (*SurfaceComposerClient__GetInternalDisplayToken)() = nullptr;
         std::vector<uint64_t> (*SurfaceComposerClient__GetPhysicalDisplayIds)() = nullptr;
@@ -92,6 +93,10 @@ namespace detail {
             // SurfaceComposerClient constructor (C2 for base, works fine)
             SurfaceComposerClient__Constructor = (decltype(SurfaceComposerClient__Constructor))dlsym(libgui, "_ZN7android21SurfaceComposerClientC2Ev");
             LOGI("dlsym SCC::C2: %p", (void*)SurfaceComposerClient__Constructor);
+
+            // getDefault() - returns pre-initialized SCC instance (Android 15 关键!)
+            SCC_getDefault = (void*(*)())dlsym(libgui, "_ZN7android21SurfaceComposerClient10getDefaultEv");
+            LOGI("dlsym SCC::getDefault: %p", (void*)SCC_getDefault);
 
             // createSurface - Android 14+ uses gui::LayerMetadata
             if (systemVersion >= 14) {
@@ -234,19 +239,23 @@ public:
             width = di.width; height = di.height;
         }
 
-        // 1. Construct SurfaceComposerClient (1024 bytes like AndroidSurfaceImgui)
-        char scc_buf[1024] = {0};
-        if (!F.SurfaceComposerClient__Constructor) {
-            LOGE("SCC::Constructor is NULL"); return nullptr;
+        // 1. Get pre-initialized SurfaceComposerClient via getDefault()
+        if (!F.SCC_getDefault) {
+            LOGE("SCC::getDefault is NULL"); return nullptr;
         }
-        F.SurfaceComposerClient__Constructor(scc_buf);
-        LOGI("SCC constructed at %p", scc_buf);
-
-        // IncStrong to keep it alive (skip for now, may crash on A15)
-        if (F.RefBase__IncStrong) {
-            LOGI("calling IncStrong...");
-            F.RefBase__IncStrong(scc_buf, scc_buf);
-            LOGI("IncStrong done");
+        LOGI("calling SCC::getDefault()...");
+        void* scc = F.SCC_getDefault();
+        LOGI("getDefault returned: %p", scc);
+        if (!scc) {
+            LOGE("getDefault failed, trying manual constructor...");
+            // Fallback: manual constructor
+            char scc_buf[1024] = {0};
+            if (F.SurfaceComposerClient__Constructor) {
+                F.SurfaceComposerClient__Constructor(scc_buf);
+                if (F.RefBase__IncStrong) F.RefBase__IncStrong(scc_buf, scc_buf);
+                scc = scc_buf;
+            }
+            if (!scc) return nullptr;
         }
 
         // 2. Construct String8 for name
@@ -282,7 +291,7 @@ public:
 
         LOGI("calling CreateSurface...");
         void* surfaceControl = F.SurfaceComposerClient__CreateSurface(
-            scc_buf, name_buf, (uint32_t)width, (uint32_t)height,
+            scc, name_buf, (uint32_t)width, (uint32_t)height,
             1 /*RGBA_8888*/, 0 /*flags*/,
             &parentHandle, lm_ptr, nullptr);
         LOGI("CreateSurface returned: %p", surfaceControl);
