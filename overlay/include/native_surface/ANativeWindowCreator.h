@@ -140,25 +140,30 @@ public:
         LOGI("GetDisplayInfo: systemVersion=%zu", F.systemVersion);
         detail::sp<void> display;
 
+        // Android 14+: try getInternalDisplayToken first (more reliable)
         if (F.systemVersion >= 14) {
-            if (F.SurfaceComposerClient__GetPhysicalDisplayIds) {
+            if (F.SurfaceComposerClient__GetInternalDisplayToken) {
+                LOGI("trying getInternalDisplayToken (Android %zu)", F.systemVersion);
+                display = F.SurfaceComposerClient__GetInternalDisplayToken();
+                LOGI("GetInternalDisplayToken result: ptr=%p", display.get());
+            }
+            // fallback to physical display ids
+            if (!display.get() && F.SurfaceComposerClient__GetPhysicalDisplayIds) {
+                LOGI("fallback to GetPhysicalDisplayIds");
                 auto ids = F.SurfaceComposerClient__GetPhysicalDisplayIds();
                 LOGI("GetPhysicalDisplayIds: count=%zu", ids.size());
                 if (!ids.empty()) {
                     LOGI("display ids[0]=%llu", (unsigned long long)ids[0]);
-                    display = F.SurfaceComposerClient__GetPhysicalDisplayToken(ids[0]);
-                    LOGI("GetPhysicalDisplayToken done, ptr=%p", display.get());
-                }
-                // fallback
-                if (!display.get()) {
-                    LOGI("trying getInternalDisplayToken fallback");
-                    if (F.SurfaceComposerClient__GetInternalDisplayToken) {
-                        display = F.SurfaceComposerClient__GetInternalDisplayToken();
-                        LOGI("GetInternalDisplayToken fallback: ptr=%p", display.get());
+                    if (F.SurfaceComposerClient__GetPhysicalDisplayToken) {
+                        display = F.SurfaceComposerClient__GetPhysicalDisplayToken(ids[0]);
+                        LOGI("GetPhysicalDisplayToken result: ptr=%p", display.get());
+                    } else {
+                        LOGE("GetPhysicalDisplayToken is NULL");
                     }
                 }
-            } else {
-                LOGE("GetPhysicalDisplayIds is NULL");
+            }
+            if (!display.get()) {
+                LOGE("all display token methods failed on Android %zu", F.systemVersion);
             }
         } else if (F.systemVersion >= 10) {
             display = F.SurfaceComposerClient__GetInternalDisplayToken();
