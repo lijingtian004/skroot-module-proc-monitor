@@ -307,15 +307,16 @@ static void* touch_thread(void*) {
                         g_last_sx=sx; g_last_sy=sy; // 记录初始位置，窗口不跳
                         g_skip_first_syn=true; // 跳过第一个SYN，防止驱动发来的坐标偏移
                     } else {
-                        dragging=false;
-                    }
-                    touching=true;
+                    dragging=false;
+                    g_skip_first_syn=false; // 窗口外DOWN，不跳过任何SYN
+                }
+                touching=true;
                     {struct timespec ts;clock_gettime(CLOCK_MONOTONIC,&ts);touch_start_ms=ts.tv_sec*1000+ts.tv_nsec/1000000;}
                 }
                 else if(tid>=0){
                     // UP: 抬起
                     LOGI("TOUCH UP touching=%d dragging=%d",touching?1:0,dragging?1:0);
-                    touching=false;dragging=false;
+                    touching=false;dragging=false;g_skip_first_syn=false;
                 }
                 tid=e.value;
             }
