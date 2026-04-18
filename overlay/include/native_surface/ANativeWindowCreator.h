@@ -120,7 +120,10 @@ namespace detail {
                 SurfaceComposerClient__Transaction__SetTrustedOverlay = (void*(*)(void*, sp<void>&, bool))dlsym(libgui, "_ZN7android21SurfaceComposerClient11Transaction17setTrustedOverlayERKNS_2spINS_14SurfaceControlEEEb");
             }
 
-            LOGI("ANativeWindowCreator initialized (Android %zu)", systemVersion);
+            LOGI("ANativeWindowCreator initialized (Android %zu), GetPhysicalDisplayIds=%p, GetPhysicalDisplayToken=%p",
+                 systemVersion,
+                 (void*)SurfaceComposerClient__GetPhysicalDisplayIds,
+                 (void*)SurfaceComposerClient__GetPhysicalDisplayToken);
         }
     };
 } // namespace detail
@@ -132,16 +135,26 @@ public:
     static DisplayInfo GetDisplayInfo() {
         DisplayInfo info{};
         auto& F = detail::Functionals::GetInstance();
+        LOGI("GetDisplayInfo: systemVersion=%zu", F.systemVersion);
         detail::sp<void> display;
 
         if (F.systemVersion >= 14) {
-            auto ids = F.SurfaceComposerClient__GetPhysicalDisplayIds();
-            if (!ids.empty()) display = F.SurfaceComposerClient__GetPhysicalDisplayToken(ids[0]);
+            if (F.SurfaceComposerClient__GetPhysicalDisplayIds) {
+                auto ids = F.SurfaceComposerClient__GetPhysicalDisplayIds();
+                LOGI("GetPhysicalDisplayIds: count=%zu", ids.size());
+                if (!ids.empty()) {
+                    display = F.SurfaceComposerClient__GetPhysicalDisplayToken(ids[0]);
+                    LOGI("GetPhysicalDisplayToken: %s", display.get() ? "OK" : "NULL");
+                }
+            } else {
+                LOGE("GetPhysicalDisplayIds is NULL");
+            }
         } else if (F.systemVersion >= 10) {
             display = F.SurfaceComposerClient__GetInternalDisplayToken();
+            LOGI("GetInternalDisplayToken: %s", display.get() ? "OK" : "NULL");
         }
 
-        if (!display.get()) return info;
+        if (!display.get()) { LOGE("display token is NULL"); return info; }
 
         detail::DisplayState state{};
         if (F.SurfaceComposerClient__GetDisplayState(display, &state) != 0) return info;
