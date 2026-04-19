@@ -268,6 +268,9 @@ int proc_scanner_init(const char* module_private_dir) {
     // 创建存储目录
     mkdir("/storage/emulated/0/SKMonitor", 0755);
 
+    // 创建存储目录
+    mkdir("/storage/emulated/0/SKMonitor", 0755);
+
     if (module_private_dir) {
         strncpy(g_private_dir, module_private_dir, sizeof(g_private_dir) - 1);
     }
@@ -533,7 +536,12 @@ static void read_per_core_cpu(double* per_core, int max_cores, int* out_count, d
             unsigned long d_idle = idle_total - g_prev_cpu_idle[core];
             per_core[core] = d_total > 0 ? (double)(d_total - d_idle) / d_total * 100.0 : 0;
         } else {
-            per_core[core] = 0;
+            // 首次调用：计算当前 CPU 使用率
+            if (total > 0) {
+                per_core[core] = (double)(total - idle_total) / total * 100.0;
+            } else {
+                per_core[core] = 0;
+            }
         }
 
         g_prev_cpu_total[core] = total;

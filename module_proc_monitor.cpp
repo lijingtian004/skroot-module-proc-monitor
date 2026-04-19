@@ -357,6 +357,7 @@ static void stop_overlay() {
 
 // API Key 认证（存储在文件中）
 static std::string g_api_key;
+static bool g_api_key_enabled = true;  // 默认启用
 
 // 生成随机 API Key
 static std::string generate_api_key() {
@@ -371,6 +372,26 @@ static std::string generate_api_key() {
 
 // 加载或生成 API Key
 static void init_api_key(const char* module_dir) {
+    // 读取 API Key 开关配置
+    char config_path[512];
+    snprintf(config_path, sizeof(config_path), "%s/api_key_config", module_dir);
+    FILE* cf = fopen(config_path, "r");
+    if (cf) {
+        char line[64];
+        while (fgets(line, sizeof(line), cf)) {
+            if (strncmp(line, "enabled=", 8) == 0) {
+                g_api_key_enabled = (atoi(line + 8) != 0);
+            }
+        }
+        fclose(cf);
+    }
+    
+    // 如果禁用 API Key，直接返回
+    if (!g_api_key_enabled) {
+        LOGI("[module_proc_monitor] API Key authentication disabled\n");
+        return;
+    }
+    
     char path[512];
     snprintf(path, sizeof(path), "%s/api_key", module_dir);
     
@@ -404,6 +425,9 @@ static void init_api_key(const char* module_dir) {
 }
 
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
+    // 创建存储目录
+    mkdir("/storage/emulated/0/SKMonitor", 0755);
+
     // 创建存储目录
     mkdir("/storage/emulated/0/SKMonitor", 0755);
 
@@ -461,6 +485,9 @@ public:
 
     // 验证 API Key
     bool verifyApiKey(struct mg_connection* conn) {
+        // 如果禁用 API Key，直接返回 true
+        if (!g_api_key_enabled) return true;
+        
         // 从请求头获取 API Key
         const char* api_key_header = mg_get_header(conn, "X-API-Key");
         if (!api_key_header) {
@@ -616,8 +643,10 @@ public:
                 }
                 fclose(rf);
             }
-            char resp[128];
-            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
+            char resp[256];
+            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s,\"api_key_enabled\":%s}", 
+                     dual_battery ? "true" : "false",
+                     g_api_key_enabled ? "true" : "false");
             kernel_module::webui::send_text(conn, 200, resp);
             return true;
         }
@@ -799,8 +828,10 @@ public:
             }
             // 立即更新运行时变量
             power_tracker_set_dual_battery(dual_battery);
-            char resp[128];
-            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
+            char resp[256];
+            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s,\"api_key_enabled\":%s}", 
+                     dual_battery ? "true" : "false",
+                     g_api_key_enabled ? "true" : "false");
             kernel_module::webui::send_text(conn, 200, resp);
             return true;
         }
