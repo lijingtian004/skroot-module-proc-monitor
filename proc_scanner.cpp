@@ -175,11 +175,13 @@ static void scan_proc_dir() {
             ev.pid = pid;
             ev.type = ProcEventType::EXEC;
             strncpy(ev.comm, comm_cstr, sizeof(ev.comm) - 1);
+            ev.comm[sizeof(ev.comm) - 1] = '\0';  // 确保终止
 
             // 读取详细信息
             char cmdline[256] = {0};
             read_proc_cmdline(pid, cmdline, sizeof(cmdline));
             strncpy(ev.cmdline, cmdline, sizeof(ev.cmdline) - 1);
+            ev.cmdline[sizeof(ev.cmdline) - 1] = '\0';  // 确保终止
 
             read_proc_status(pid, &ev.ppid, &ev.uid);
 
@@ -195,8 +197,11 @@ static void scan_proc_dir() {
                 alert.ppid = ev.ppid;
                 alert.uid = ev.uid;
                 strncpy(alert.comm, comm_cstr, sizeof(alert.comm) - 1);
+                alert.comm[sizeof(alert.comm) - 1] = '\0';
                 strncpy(alert.cmdline, cmdline, sizeof(alert.cmdline) - 1);
+                alert.cmdline[sizeof(alert.cmdline) - 1] = '\0';
                 strncpy(alert.alert_reason, sp->reason, sizeof(alert.alert_reason) - 1);
+                alert.alert_reason[sizeof(alert.alert_reason) - 1] = '\0';
                 g_event_buf.add_event(alert);
             }
         }
@@ -210,6 +215,7 @@ static void scan_proc_dir() {
             ev.type = ProcEventType::EXIT;
             ev.pid = pid;
             strncpy(ev.comm, comm.c_str(), sizeof(ev.comm) - 1);
+            ev.comm[sizeof(ev.comm) - 1] = '\0';  // 确保终止
             g_event_buf.add_event(ev);
         }
     }
