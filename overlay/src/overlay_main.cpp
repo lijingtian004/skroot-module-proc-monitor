@@ -491,14 +491,15 @@ static void draw_vbar(uint32_t* px, int stride, int w, int h,
                       int bx, int by, int bw, int bh, float pct, uint32_t color) {
     // 竖向柱状图：从下往上填充
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    // 背景
-    fill_rounded_rect(px, stride, w, h, bx, by, bw, bh, 2, make_rgba(40,40,40,150));
+    // 背景（完全不透明）
+    fill_rounded_rect(px, stride, w, h, bx, by, bw, bh, 2, make_rgba(40,40,40,255));
     // 填充（从底部起）
     int fill_h = (int)(bh * pct / 100.0f);
     if (fill_h > 1) {
         int fy = by + bh - fill_h;
+        // 确保填充色完全不透明
         uint32_t bar_color = pct > 80 ? make_rgba(255,100,80,255) :
-                             pct > 50 ? make_rgba(255,215,75,255) : color;
+                             pct > 50 ? make_rgba(255,215,75,255) : make_rgba(color & 0xFF, (color>>8)&0xFF, (color>>16)&0xFF, 255);
         fill_rounded_rect(px, stride, w, h, bx+1, fy, bw-2, fill_h, 2, bar_color);
     }
 }
@@ -541,11 +542,11 @@ static void render_frame() {
     // 根据样式绘制背景
     uint32_t bg_color;
     if (g_overlay_style == 1) {
-        // 透明样式：非常透明的背景
-        bg_color = make_rgba(0, 0, 0, 40);  // 极高透明度
+        // 透明样式：带轻微背景色的透明
+        bg_color = make_rgba(20, 20, 25, 80);  // 轻微背景，高透明度
     } else {
         // 默认样式：黑色半透明
-        bg_color = make_rgba(0, 0, 0, 180);
+        bg_color = make_rgba(0, 0, 0, 200);
     }
     fill_rounded_rect(px, stride, w, h, wx, wy, ww, wh, ww*0.02f, bg_color);
 
