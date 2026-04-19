@@ -144,32 +144,23 @@ static double getDumpsysFPS() {
 }
 
 static void fetch_data() {
-    // 读取刷新配置（只在启动时或显式请求时读取）
-    static bool config_loaded = false;
-    static int config_reload_counter = 0;
-    
-    // 每50次fetch检查一次配置文件是否更新（约250秒）
-    if (!config_loaded || (++config_reload_counter % 50 == 0)) {
-        struct stat st;
-        static time_t last_mtime = 0;
-        if (stat("/data/adb/overlay_config", &st) == 0) {
-            if (!config_loaded || st.st_mtime != last_mtime) {
-                FILE* cfg = fopen("/data/adb/overlay_config", "r");
-                if (cfg) {
-                    char line[256];
-                    while (fgets(line, sizeof(line), cfg)) {
-                        if (strncmp(line, "fast_mode=", 10) == 0) {
-                            int val = atoi(line + 10);
-                            g_fast_mode = (val != 0);
-                            g_fetch_interval_us = g_fast_mode ? 2000000 : 5000000;
-                            LOGI("config: fast_mode=%d, interval=%dus", g_fast_mode, g_fetch_interval_us);
-                        }
+    // 读取刷新配置 - 每次都读取，确保配置同步
+    {
+        FILE* cfg = fopen("/data/adb/overlay_config", "r");
+        if (cfg) {
+            char line[256];
+            while (fgets(line, sizeof(line), cfg)) {
+                if (strncmp(line, "fast_mode=", 10) == 0) {
+                    int val = atoi(line + 10);
+                    bool new_mode = (val != 0);
+                    if (new_mode != g_fast_mode) {
+                        g_fast_mode = new_mode;
+                        g_fetch_interval_us = g_fast_mode ? 2000000 : 5000000;
+                        LOGI("config changed: fast_mode=%d, interval=%dus", g_fast_mode, g_fetch_interval_us);
                     }
-                    fclose(cfg);
-                    config_loaded = true;
-                    last_mtime = st.st_mtime;
                 }
             }
+            fclose(cfg);
         }
     }
     
@@ -406,7 +397,7 @@ static void* touch_thread(void*) {
                     // DOWN: 处理新触摸（包括UP丢失的恢复）
                     if(tid>=0){LOGI("MISSED UP! old_tid=%d force reset",tid);touching=false;dragging=false;}
                     float sx=cx*g_scale_x, sy=cy*g_scale_y;
-                    int ww=g_screen_w*0.50f;
+                    int ww=g_screen_w*0.40f;
                     int padding=ww*0.025f;
                     int font_scale=ww/140;
                     if(font_scale<2)font_scale=2;
@@ -445,7 +436,7 @@ static void* touch_thread(void*) {
             float sx=cx*g_scale_x, sy=cy*g_scale_y;
             if(g_skip_first_syn){g_skip_first_syn=false;g_last_sx=sx;g_last_sy=sy;LOGI("SKIP first SYN");continue;}
             // 检查手指是否还在窗口区域内（含外扩padding）
-            int ww=g_screen_w*0.50f;
+            int ww=g_screen_w*0.40f;
             int padding=ww*0.025f;
             int font_scale=ww/140;if(font_scale<2)font_scale=2;
             int big_fs=font_scale*2;if(big_fs<4)big_fs=4;
@@ -507,7 +498,7 @@ static void render_frame() {
 
     // 窗口参数
     int wx = (int)g_win_x, wy = (int)g_win_y;
-    int ww = g_screen_w * 0.50f;
+    int ww = g_screen_w * 0.40f;  // 缩小到40%
     int pad = ww * 0.025f;
     int gap = pad / 2;
     int col_w = (ww - 2*pad - 2*gap) / 3;

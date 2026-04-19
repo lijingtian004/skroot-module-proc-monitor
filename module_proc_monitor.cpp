@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <string>
+#include <sstream>
 #include <vector>
 #include <algorithm>
 #include <unistd.h>
@@ -542,25 +543,46 @@ public:
         }
 
         if (path == "/api/overlay-config") {
-            // 写入配置文件
-            FILE* cfg = fopen("/data/adb/overlay_config", "w");
-            if (cfg) {
-                fwrite(body.c_str(), 1, body.size(), cfg);
-                fclose(cfg);
-            }
-            // 返回当前配置
-            char buf[256] = "{\"fast_mode\":0}";
-            FILE* f = fopen("/data/adb/overlay_config", "r");
-            if (f) {
-                char line[256];
-                while (fgets(line, sizeof(line), f)) {
-                    if (strncmp(line, "fast_mode=", 10) == 0) {
-                        snprintf(buf, sizeof(buf), "{\"fast_mode\":%d}", atoi(line + 10));
-                    }
+            // 读取现有配置
+            std::string config_content;
+            FILE* rf = fopen("/data/adb/overlay_config", "r");
+            if (rf) {
+                char buf[4096];
+                size_t n;
+                while ((n = fread(buf, 1, sizeof(buf), rf)) > 0) {
+                    config_content.append(buf, n);
                 }
-                fclose(f);
+                fclose(rf);
             }
-            kernel_module::webui::send_text(conn, 200, buf);
+            
+            // 解析并更新fast_mode
+            std::string new_config;
+            bool found = false;
+            std::istringstream iss(config_content);
+            std::string line;
+            while (std::getline(iss, line)) {
+                if (line.substr(0, 10) == "fast_mode=") {
+                    new_config += "fast_mode=" + std::string(body == "fast_mode=1" ? "1" : "0") + "\n";
+                    found = true;
+                } else if (!line.empty()) {
+                    new_config += line + "\n";
+                }
+            }
+            if (!found) {
+                new_config += std::string(body == "fast_mode=1" ? "fast_mode=1" : "fast_mode=0") + "\n";
+            }
+            
+            // 写入配置文件
+            FILE* wf = fopen("/data/adb/overlay_config", "w");
+            if (wf) {
+                fwrite(new_config.c_str(), 1, new_config.size(), wf);
+                fclose(wf);
+            }
+            
+            // 返回当前配置
+            char resp[256];
+            snprintf(resp, sizeof(resp), "{\"fast_mode\":%d}", body == "fast_mode=1" ? 1 : 0);
+            kernel_module::webui::send_text(conn, 200, resp);
             return true;
         }
 

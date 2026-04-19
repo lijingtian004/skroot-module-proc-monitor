@@ -522,7 +522,7 @@ namespace android {
                 parentHandle = nullptr;
                 
                 String8 windowName(name);
-                int32_t pixelFormat = 1;
+                int32_t pixelFormat = -3;  // TRANSLUCENT - 支持透明
                 LayerMetadata layerMetadata{};
                 auto systemVersion = Functionals::GetInstance().systemVersion;
 

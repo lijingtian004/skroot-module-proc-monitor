@@ -544,11 +544,20 @@ async function fetchOverlayStatus() {
 }
 
 // ============ Fast Refresh Toggle ============
+let lastFetchedFastMode = -1;  // 记录上次获取的值，避免无谓更新
+
 async function toggleFastRefresh() {
   const checkbox = document.getElementById('fastRefreshToggle');
   const fastMode = checkbox.checked ? 1 : 0;
-  const config = `fast_mode=${fastMode}\n`;
-  await api('/api/overlay-config', config);
+  const config = `fast_mode=${fastMode}`;
+  const result = await api('/api/overlay-config', config);
+  if (result) try {
+    const d = JSON.parse(result);
+    if (d.fast_mode !== undefined) {
+      lastFetchedFastMode = d.fast_mode;
+      checkbox.checked = d.fast_mode === 1;
+    }
+  } catch(e) {}
 }
 
 async function fetchOverlayConfig() {
@@ -556,7 +565,8 @@ async function fetchOverlayConfig() {
   if (raw) try {
     const d = JSON.parse(raw);
     const checkbox = document.getElementById('fastRefreshToggle');
-    if (checkbox && d.fast_mode !== undefined) {
+    if (checkbox && d.fast_mode !== undefined && d.fast_mode !== lastFetchedFastMode) {
+      lastFetchedFastMode = d.fast_mode;
       checkbox.checked = d.fast_mode === 1;
     }
   } catch(e) {}
