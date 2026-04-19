@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <algorithm>
+#include <mutex>
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -710,6 +711,7 @@ struct UidSample {
 
 static std::unordered_map<uid_t, UidSample> g_prev_samples;
 static std::unordered_map<uid_t, AppPowerInfo> g_power_cache;
+static std::mutex g_power_cache_mutex;  // 保护 g_power_cache 的互斥锁
 static double g_last_sample_time = 0;
 static double g_prev_total_cpu_sec = 0;
 static double g_battery_power_mw = 0;  // 实际电池功率 mW（从 sysfs 读取）
@@ -1341,7 +1343,10 @@ static void read_proc_io(pid_t pid, int64_t& rbytes, int64_t& wbytes) {
 
 void power_tracker_init() {
     g_prev_samples.clear();
-    g_power_cache.clear();
+    {
+        std::lock_guard<std::mutex> lock(g_power_cache_mutex);
+        g_power_cache.clear();
+    }
     g_last_sample_time = 0;
     g_prev_total_cpu_sec = 0;
 }
@@ -1504,7 +1509,9 @@ void power_tracker_sample() {
     // 读取实际电池功率（一次即可）
     g_battery_power_mw = read_battery_power_mw();
 
-    g_power_cache.clear();
+    // 构建新的 power cache
+    std::unordered_map<uid_t, AppPowerInfo> new_cache;
+    
     for (auto& [uid, cur] : cur_samples) {
         AppPowerInfo info = {};
         info.uid = uid;
@@ -1531,6 +1538,7 @@ void power_tracker_sample() {
             if (sp && *(sp + 1)) pkg = sp + 1;
         }
         strncpy(info.package_name, pkg, sizeof(info.package_name) - 1);
+        info.package_name[sizeof(info.package_name) - 1] = '\0';
 
         // 显示名：优先用自定义映射 → 内置映射 → 包名最后一段
         const char* label = nullptr;
@@ -1561,7 +1569,13 @@ void power_tracker_sample() {
         // 整机模式功耗：该 App 在前台时的平均电池功率
         info.avg_battery_mw = calc_avg_battery_for_uid(uid);
 
-        g_power_cache[uid] = info;
+        new_cache[uid] = info;
+    }
+
+    // 原子替换 cache（加锁保护）
+    {
+        std::lock_guard<std::mutex> lock(g_power_cache_mutex);
+        g_power_cache = std::move(new_cache);
     }
 
     // 记录本次采样到历史环形缓冲区（记录前台 App，即使无电池功率也记 UID）
@@ -1584,8 +1598,11 @@ void power_tracker_sample() {
 
 std::vector<AppPowerInfo> power_tracker_get_top(int n) {
     std::vector<AppPowerInfo> result;
-    for (auto& [uid, info] : g_power_cache) {
-        result.push_back(info);
+    {
+        std::lock_guard<std::mutex> lock(g_power_cache_mutex);
+        for (auto& [uid, info] : g_power_cache) {
+            result.push_back(info);
+        }
     }
     std::sort(result.begin(), result.end(),
         [](const AppPowerInfo& a, const AppPowerInfo& b) {
