@@ -332,6 +332,21 @@ body {
   background: rgba(255, 80, 80, 0.35);
 }
 
+.btn-system {
+  background: rgba(255, 50, 50, 0.2);
+  border-color: rgba(255, 50, 50, 0.5);
+  color: #ff3232;
+  animation: pulse-danger 2s infinite;
+}
+.btn-system:hover {
+  background: rgba(255, 50, 50, 0.3);
+  border-color: rgba(255, 50, 50, 0.7);
+}
+@keyframes pulse-danger {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .detail-actions {
   margin-top: 16px;
   padding-top: 16px;

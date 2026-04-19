@@ -203,11 +203,11 @@ function renderDrainInfo() {
   }
   let html = '';
   drainData.forEach((a, i) => {
-    // 整机模式用 avg_battery_mw，为0时显示 "--"
+    // 整机模式优先用 avg_battery_mw，无数据时 fallback 到 power_mw
     // 应用模式用 power_mw
     let mw, watts;
     if (drainMode === 'system') {
-      mw = a.avg_battery_mw || 0;
+      mw = (a.avg_battery_mw || 0) || (a.power_mw || 0);
       watts = mw > 0 ? (mw / 1000).toFixed(2) : '--';
     } else {
       mw = a.power_mw || 0;
@@ -250,12 +250,13 @@ function showDrainDetail(i) {
       <div class="detail-row"><span class="detail-label">功耗(CPU占比)</span><span class="detail-value">${a.power_mw > 0 ? (a.power_mw/1000).toFixed(2) + ' W' : '--'}</span></div>
       <div class="detail-row"><span class="detail-label">功耗(期间均值)</span><span class="detail-value">${a.avg_battery_mw > 0 ? (a.avg_battery_mw/1000).toFixed(2) + ' W' : '--'}</span></div>
     </div>`;
-  // 添加结束进程按钮（只对非系统应用显示）
-  if (a.uid >= 10000) {
-    html += `<div class="detail-actions">
-      <button class="btn-danger" onclick="killProcess(${a.uid})">结束此应用</button>
-    </div>`;
-  }
+  // 所有应用都显示结束按钮，系统应用使用不同样式
+  const isSystem = a.uid < 10000;
+  const btnClass = isSystem ? 'btn-danger btn-system' : 'btn-danger';
+  const btnText = isSystem ? '强制结束（危险）' : '结束此应用';
+  html += `<div class="detail-actions">
+    <button class="${btnClass}" onclick="killProcess(${a.uid}, ${isSystem})">${btnText}</button>
+  </div>`;
   body.innerHTML = html;
   overlay.classList.add('show');
 }
@@ -455,12 +456,13 @@ function showProcDetail(p) {
   const rows = [['PID', p.pid], ['PPID', p.ppid], ['UID', `${p.uid} (${uidName(p.uid)})`], ['名称', p.comm]];
   if (p.cmdline) rows.push(['命令行', p.cmdline]);
   let html = rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(String(v))}</span></div>`).join('');
-  // 添加结束进程按钮（只对非系统进程显示）
-  if (p.uid >= 10000) {
-    html += `<div class="detail-actions">
-      <button class="btn-danger" onclick="killProcess(${p.uid})">结束此应用</button>
-    </div>`;
-  }
+  // 所有进程都显示结束按钮，系统进程使用不同样式和确认
+  const isSystem = p.uid < 10000;
+  const btnClass = isSystem ? 'btn-danger btn-system' : 'btn-danger';
+  const btnText = isSystem ? '强制结束（危险）' : '结束此应用';
+  html += `<div class="detail-actions">
+    <button class="${btnClass}" onclick="killProcess(${p.uid}, ${isSystem})">${btnText}</button>
+  </div>`;
   body.innerHTML = html;
   overlay.classList.add('show');
 }
@@ -626,12 +628,17 @@ async function fetchOverlayConfig() {
 }
 
 // ============ 双电芯配置 ============
+let lastDualBattery = undefined;
+
 async function fetchConfig() {
-  const raw = await api('/api/config', null, 'GET');
+  const raw = await api('/api/config');
   if (raw) try {
     const d = JSON.parse(raw);
     const toggle = document.getElementById('dualBatteryToggle');
-    if (toggle) toggle.checked = d.dual_battery === true;
+    if (toggle && d.dual_battery !== lastDualBattery) {
+      lastDualBattery = d.dual_battery;
+      toggle.checked = d.dual_battery === true;
+    }
   } catch(e) {}
 }
 
@@ -639,11 +646,15 @@ async function toggleDualBattery() {
   const toggle = document.getElementById('dualBatteryToggle');
   const val = toggle.checked ? '1' : '0';
   await api('/api/config', 'dual_battery=' + val);
+  lastDualBattery = toggle.checked;
 }
 
 // ============ 结束进程 ============
-async function killProcess(uid) {
-  if (!confirm('确定要结束此应用 (UID: ' + uid + ') 吗？')) return;
+async function killProcess(uid, isSystem = false) {
+  const confirmMsg = isSystem
+    ? '警告：这是系统进程 (UID: ' + uid + ')，强制结束可能导致系统不稳定！\n\n确定要继续吗？'
+    : '确定要结束此应用 (UID: ' + uid + ') 吗？';
+  if (!confirm(confirmMsg)) return;
   const result = await api('/api/kill-process', '{"uid":' + uid + '}');
   try {
     const d = JSON.parse(result);
