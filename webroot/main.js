@@ -54,6 +54,24 @@ async function api(path, body = '') {
   } catch (e) { console.error(`API [${path}]:`, e); return null; }
 }
 
+// 纯 GET 请求
+async function apiGet(path) {
+  try {
+    const resp = await fetch(new URL(path, window.location.href), { method: 'GET' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.text();
+  } catch (e) { console.error(`API GET [${path}]:`, e); return null; }
+}
+
+// 纯 POST 请求
+async function apiPost(path, body = '') {
+  try {
+    const resp = await fetch(new URL(path, window.location.href), { method: 'POST', body });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.text();
+  } catch (e) { console.error(`API POST [${path}]:`, e); return null; }
+}
+
 // ============ Data Fetch ============
 async function fetchEvents() {
   const raw = await api('/api/events', '200');
@@ -203,11 +221,11 @@ function renderDrainInfo() {
   }
   let html = '';
   drainData.forEach((a, i) => {
-    // 整机模式优先用 avg_battery_mw，无数据时 fallback 到 power_mw
+    // 整机模式用 avg_battery_mw，为0时显示 "--"
     // 应用模式用 power_mw
     let mw, watts;
     if (drainMode === 'system') {
-      mw = (a.avg_battery_mw || 0) || (a.power_mw || 0);
+      mw = a.avg_battery_mw || 0;
       watts = mw > 0 ? (mw / 1000).toFixed(2) : '--';
     } else {
       mw = a.power_mw || 0;
@@ -631,7 +649,7 @@ async function fetchOverlayConfig() {
 let lastDualBattery = undefined;
 
 async function fetchConfig() {
-  const raw = await api('/api/config');
+  const raw = await apiGet('/api/config');
   if (raw) try {
     const d = JSON.parse(raw);
     const toggle = document.getElementById('dualBatteryToggle');
@@ -645,7 +663,7 @@ async function fetchConfig() {
 async function toggleDualBattery() {
   const toggle = document.getElementById('dualBatteryToggle');
   const val = toggle.checked ? '1' : '0';
-  await api('/api/config', 'dual_battery=' + val);
+  await apiPost('/api/config', 'dual_battery=' + val);
   lastDualBattery = toggle.checked;
 }
 
