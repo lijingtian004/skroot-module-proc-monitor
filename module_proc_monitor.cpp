@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <dirent.h>
+#include <fcntl.h>
 
 #include "kernel_module_kit_umbrella.h"
 #include "proc_scanner.h"
@@ -341,9 +342,8 @@ static void stop_overlay() {
 // ============ 模块入口 ============
 
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
-    printf("[module_proc_monitor] starting...\n");
-    printf("[module_proc_monitor] root_key len=%zu\n", strlen(root_key));
-    printf("[module_proc_monitor] module_private_dir=%s\n", module_private_dir);
+    // 不打印敏感信息（root_key 长度和模块路径）
+    printf("[module_proc_monitor] initializing...\n");
 
     g_module_dir = module_private_dir;
 
@@ -667,10 +667,11 @@ public:
             bool dual_battery = (body.find("dual_battery=1") != std::string::npos) ||
                                 (body.find("\"dual_battery\":true") != std::string::npos);
             std::string config = "dual_battery=" + std::string(dual_battery ? "1" : "0") + "\n";
-            FILE* wf = fopen("/data/adb/proc_monitor_config", "w");
-            if (wf) {
-                fwrite(config.c_str(), 1, config.size(), wf);
-                fclose(wf);
+            // 安全写入：使用 open() 设置权限 0600 (仅 root 可读写)
+            int fd = open("/data/adb/proc_monitor_config", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+            if (fd >= 0) {
+                write(fd, config.c_str(), config.size());
+                close(fd);
             }
             // 立即更新运行时变量
             power_tracker_set_dual_battery(dual_battery);
@@ -680,58 +681,94 @@ public:
             return true;
         }
 
-        // 结束进程
+        // 结束进程 - 安全实现
         if (path == "/api/kill-process") {
             // body 格式: "uid=10123" 或 "{\"uid\":10123}"
             int uid = -1;
-            // 尝试解析 uid
+            // 尝试解析 uid（只取数字部分）
             size_t pos = body.find("uid=");
             if (pos != std::string::npos) {
-                uid = atoi(body.substr(pos + 4).c_str());
+                const char* start = body.c_str() + pos + 4;
+                uid = atoi(start);  // atoi 只解析开头的数字
             } else {
                 pos = body.find("\"uid\":");
                 if (pos != std::string::npos) {
-                    uid = atoi(body.substr(pos + 6).c_str());
+                    const char* start = body.c_str() + pos + 6;
+                    uid = atoi(start);
                 }
             }
 
-            if (uid <= 0) {
-                kernel_module::webui::send_text(conn, 400, "{\"error\":\"invalid uid\"}");
+            // 验证 UID 范围 (Android UID: 0-99999)
+            if (uid < 0 || uid > 99999) {
+                kernel_module::webui::send_text(conn, 400, "{\"error\":\"invalid uid range\"}");
                 return true;
             }
 
-            // 使用 am force-stop 结束应用（需要通过 shell）
-            char cmd[256];
-            // 先通过 UID 获取包名
-            char pkg_cmd[256];
-            snprintf(pkg_cmd, sizeof(pkg_cmd), "grep '^package:' /data/system/packages.list | grep ' %d ' | awk '{print $1}'", uid);
-            FILE* f = popen(pkg_cmd, "r");
+            // 安全获取包名：直接读取文件，不使用 shell
             char pkg[256] = {0};
+            FILE* f = fopen("/data/system/packages.list", "r");
             if (f) {
-                fgets(pkg, sizeof(pkg), f);
-                pclose(f);
-                // 去掉换行符
-                char* nl = strchr(pkg, '\n');
-                if (nl) *nl = 0;
+                char line[512];
+                char uid_str[32];
+                snprintf(uid_str, sizeof(uid_str), " %d ", uid);
+                while (fgets(line, sizeof(line), f)) {
+                    // 格式: package_name uid [flags]
+                    if (strstr(line, uid_str)) {
+                        // 提取包名（第一个空格前的内容）
+                        char* space = strchr(line, ' ');
+                        if (space) {
+                            size_t len = space - line;
+                            if (len < sizeof(pkg)) {
+                                memcpy(pkg, line, len);
+                                pkg[len] = '\0';
+                            }
+                        }
+                        break;
+                    }
+                }
+                fclose(f);
             }
 
-            bool success = false;
-            if (strlen(pkg) > 0) {
-                snprintf(cmd, sizeof(cmd), "am force-stop %s 2>&1", pkg);
-                FILE* kill_f = popen(cmd, "r");
-                if (kill_f) {
-                    pclose(kill_f);
-                    success = true;
+            // 验证包名格式（只允许小写字母、数字、点、下划线）
+            bool valid_pkg = strlen(pkg) > 0;
+            for (size_t i = 0; i < strlen(pkg) && valid_pkg; i++) {
+                char c = pkg[i];
+                if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_')) {
+                    valid_pkg = false;
                 }
             }
 
-            // 也尝试用 kill 命令杀掉该 UID 的进程
-            snprintf(cmd, sizeof(cmd), "pkill -9 -U %d 2>/dev/null", uid);
-            system(cmd);
+            bool success = false;
+            if (valid_pkg) {
+                // 安全执行：使用 execlp 替代 popen
+                pid_t pid = fork();
+                if (pid == 0) {
+                    // 子进程：直接执行，无 shell
+                    execlp("am", "am", "force-stop", pkg, nullptr);
+                    _exit(1);
+                } else if (pid > 0) {
+                    int status;
+                    waitpid(pid, &status, 0);
+                    success = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+                }
+            }
+
+            // 杀掉该 UID 的所有进程（使用安全方式）
+            {
+                pid_t pid = fork();
+                if (pid == 0) {
+                    char uid_arg[16];
+                    snprintf(uid_arg, sizeof(uid_arg), "%d", uid);
+                    execlp("pkill", "pkill", "-9", "-U", uid_arg, nullptr);
+                    _exit(1);
+                } else if (pid > 0) {
+                    waitpid(pid, nullptr, 0);
+                }
+            }
 
             char resp[256];
             snprintf(resp, sizeof(resp), "{\"success\":%s,\"uid\":%d,\"package\":\"%s\"}",
-                     success ? "true" : "false", uid, pkg);
+                     success ? "true" : "false", uid, valid_pkg ? pkg : "");
             kernel_module::webui::send_text(conn, 200, resp);
             return true;
         }
