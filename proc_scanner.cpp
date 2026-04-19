@@ -1488,42 +1488,28 @@ std::vector<AppPowerInfo> power_tracker_get_top(int n) {
     if ((int)result.size() > n) result.resize(n);
     return result;
 }
-// OverlayData 全局缓存
+// 悬浮窗数据实现
 static OverlayData g_overlay_data = {};
 static std::mutex g_overlay_mutex;
 
-// 获取悬浮窗实时数据
 OverlayData overlay_get_data() {
     std::lock_guard<std::mutex> lock(g_overlay_mutex);
-    
-    // 读取逐核心 CPU
-    read_per_core_cpu(g_overlay_data.cpu_per_core, 16, 
-                      &g_overlay_data.cpu_core_count, 
-                      &g_overlay_data.cpu_total_pct);
-    
-    // 读取 GPU
+    read_per_core_cpu(g_overlay_data.cpu_per_core, 16, &g_overlay_data.cpu_core_count, &g_overlay_data.cpu_total_pct);
     g_overlay_data.gpu_pct = read_gpu_pct(g_overlay_data.gpu_name, sizeof(g_overlay_data.gpu_name));
-    
-    // 读取电池信息
     g_overlay_data.power_mw = read_battery_power_mw();
-    
-    // 充电信息
     ChargingInfo ch = charging_get_info();
     g_overlay_data.battery_level = ch.battery_level;
     g_overlay_data.battery_temp = ch.battery_temp;
-    strncpy(g_overlay_data.battery_status, ch.battery_status, sizeof(g_overlay_data.battery_status) - 1);
-    
-    // 前台应用
+    strncpy(g_overlay_data.battery_status, ch.battery_status, 31);
     uid_t fg_uid = find_foreground_uid();
     if (fg_uid != (uid_t)-1) {
         std::lock_guard<std::mutex> plock(g_power_cache_mutex);
         auto it = g_power_cache.find(fg_uid);
         if (it != g_power_cache.end()) {
-            strncpy(g_overlay_data.fg_app, it->second.package_name, sizeof(g_overlay_data.fg_app) - 1);
+            strncpy(g_overlay_data.fg_app, it->second.package_name, 127);
             g_overlay_data.fg_cpu_pct = it->second.cpu_usage_pct;
             g_overlay_data.fg_mem_mb = it->second.mem_rss_kb / 1024;
         }
     }
-    
     return g_overlay_data;
 }
