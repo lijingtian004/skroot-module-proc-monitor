@@ -436,7 +436,7 @@ public:
         init_api_key(module_private_dir);
 
         // 写端口到文件，供悬浮窗应用读取（权限 0600）
-        int fd = open("/data/local/tmp/skroot_webui_port", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        int fd = open("/storage/emulated/0/SKMonitor/skroot_webui_port", O_WRONLY | O_CREAT | O_TRUNC, 0600);
         if (fd >= 0) {
             char buf[16];
             int len = snprintf(buf, sizeof(buf), "%u\n", port);
@@ -578,7 +578,7 @@ public:
         }
         if (path == "/api/overlay-config") {
             int fast_mode = 0, overlay_style = 0;
-            FILE* f = fopen("/data/adb/overlay_config", "r");
+            FILE* f = fopen("/storage/emulated/0/SKMonitor/overlay_config", "r");
             if (f) {
                 char line[256];
                 while (fgets(line, sizeof(line), f)) {
@@ -599,7 +599,7 @@ public:
         // 获取配置（双电芯等）
         if (path == "/api/config") {
             bool dual_battery = false;
-            FILE* rf = fopen("/data/adb/proc_monitor_config", "r");
+            FILE* rf = fopen("/storage/emulated/0/SKMonitor/proc_monitor_config", "r");
             if (rf) {
                 char line[256];
                 while (fgets(line, sizeof(line), rf)) {
@@ -723,7 +723,7 @@ public:
         if (path == "/api/overlay-config") {
             // 读取现有配置
             std::string config_content;
-            FILE* rf = fopen("/data/adb/overlay_config", "r");
+            FILE* rf = fopen("/storage/emulated/0/SKMonitor/overlay_config", "r");
             if (rf) {
                 char buf[4096];
                 size_t n;
@@ -766,7 +766,7 @@ public:
             new_config += "overlay_style=" + std::to_string(current_style) + "\n";
             
             // 写入配置文件
-            FILE* wf = fopen("/data/adb/overlay_config", "w");
+            FILE* wf = fopen("/storage/emulated/0/SKMonitor/overlay_config", "w");
             if (wf) {
                 fwrite(new_config.c_str(), 1, new_config.size(), wf);
                 fclose(wf);
@@ -785,7 +785,7 @@ public:
                                 (body.find("\"dual_battery\":true") != std::string::npos);
             std::string config = "dual_battery=" + std::string(dual_battery ? "1" : "0") + "\n";
             // 安全写入：使用 open() 设置权限 0600 (仅 root 可读写)
-            int fd = open("/data/adb/proc_monitor_config", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+            int fd = open("/storage/emulated/0/SKMonitor/proc_monitor_config", O_WRONLY | O_CREAT | O_TRUNC, 0600);
             if (fd >= 0) {
                 write(fd, config.c_str(), config.size());
                 close(fd);
