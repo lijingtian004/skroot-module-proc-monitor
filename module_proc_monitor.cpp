@@ -836,7 +836,22 @@ public:
             return true;
         }
 
-        // 结束进程 - 安全实现
+        // 结束进程 - 使用 kill 系统调用
+        if (path == "/api/kill-process") {
+            int uid = -1;
+            size_t pos = body.find("uid=");
+            if (pos != std::string::npos) {
+                uid = atoi(body.c_str() + pos + 4);
+            } else {
+                pos = body.find("\"uid\":");
+                if (pos != std::string::npos) {
+                    uid = atoi(body.c_str() + pos + 6);
+                }
+            }
+
+            if (uid < 0 || uid > 99999) {
+                kernel_module::webui::send_text(conn, 400, "{\"error\":\"invalid uid range\"}");
+                return true;
             }
 
             // 获取包名
@@ -862,19 +877,18 @@ public:
                 fclose(f);
             }
 
-            // 直接杀掉该 UID 的所有进程（使用 kill 系统调用）
+            // 直接杀掉该 UID 的所有进程
             int killed = 0;
-            DIR* dir = opendir("/proc");
-            if (dir) {
+            DIR* proc_dir = opendir("/proc");
+            if (proc_dir) {
                 struct dirent* ent;
-                while ((ent = readdir(dir)) != nullptr) {
+                while ((ent = readdir(proc_dir)) != nullptr) {
                     if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
                     pid_t pid = (pid_t)atoi(ent->d_name);
                     
-                    // 读取进程 UID
-                    char path[64];
-                    snprintf(path, sizeof(path), "/proc/%d/status", pid);
-                    FILE* sf = fopen(path, "r");
+                    char status_path[64];
+                    snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
+                    FILE* sf = fopen(status_path, "r");
                     if (!sf) continue;
                     
                     uid_t proc_uid = (uid_t)-1;
@@ -887,14 +901,13 @@ public:
                     }
                     fclose(sf);
                     
-                    // 如果是目标 UID 的进程，杀掉它
                     if (proc_uid == (uid_t)uid) {
                         if (kill(pid, SIGKILL) == 0) {
                             killed++;
                         }
                     }
                 }
-                closedir(dir);
+                closedir(proc_dir);
             }
 
             char resp[256];

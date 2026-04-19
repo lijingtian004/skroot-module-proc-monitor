@@ -156,9 +156,12 @@
         <button class="btn-sm" onclick="fetchProcs()">刷新</button>
       </div>
       <div class="cat-bar">
-        <button class="cat-btn active" data-cat="app" onclick="switchProcCat('app')"><span class="cat-label">第三方</span><span class="cat-count" id="catApp">0</span></button>
-        <button class="cat-btn" data-cat="system" onclick="switchProcCat('system')"><span class="cat-label">系统</span><span class="cat-count" id="catSystem">0</span></button>
-        <button class="cat-btn" data-cat="all" onclick="switchProcCat('all')"><span class="cat-label">全部</span></button>
+        <button class="cat-btn active" data-cat="all" onclick="switchProcCat('all')"><span class="cat-label">全部</span></button>
+        <button class="cat-btn" data-cat="system" onclick="switchProcCat('system')"><span class="cat-label">System</span><span class="cat-count">0</span></button>
+        <button class="cat-btn" data-cat="service" onclick="switchProcCat('service')"><span class="cat-label">Svc</span><span class="cat-count">0</span></button>
+        <button class="cat-btn" data-cat="app" onclick="switchProcCat('app')"><span class="cat-label">App</span><span class="cat-count">0</span></button>
+        <button class="cat-btn" data-cat="shell" onclick="switchProcCat('shell')"><span class="cat-label">Shell</span><span class="cat-count">0</span></button>
+        <button class="cat-btn" data-cat="risky" onclick="switchProcCat('risky')"><span class="cat-label">Risky</span><span class="cat-count">0</span></button>
       </div>
       <div class="proc-count" id="procCount">加载中...</div>
       <div class="event-list" id="procList">
