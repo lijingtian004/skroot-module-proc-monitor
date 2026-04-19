@@ -427,17 +427,21 @@ public:
             return true;
         }
         if (path == "/api/overlay-config") {
-            char buf[256] = "{\"fast_mode\":0}";
+            int fast_mode = 0, overlay_style = 0;
             FILE* f = fopen("/data/adb/overlay_config", "r");
             if (f) {
                 char line[256];
                 while (fgets(line, sizeof(line), f)) {
                     if (strncmp(line, "fast_mode=", 10) == 0) {
-                        snprintf(buf, sizeof(buf), "{\"fast_mode\":%d}", atoi(line + 10));
+                        fast_mode = atoi(line + 10);
+                    } else if (strncmp(line, "overlay_style=", 14) == 0) {
+                        overlay_style = atoi(line + 14);
                     }
                 }
                 fclose(f);
             }
+            char buf[256];
+            snprintf(buf, sizeof(buf), "{\"fast_mode\":%d,\"overlay_style\":%d}", fast_mode, overlay_style);
             kernel_module::webui::send_text(conn, 200, buf);
             return true;
         }
@@ -555,22 +559,37 @@ public:
                 fclose(rf);
             }
             
-            // 解析并更新fast_mode
+            // 解析现有配置
             std::string new_config;
-            bool found = false;
+            bool found_fast = false, found_style = false;
+            int current_fast = 0, current_style = 0;
+            
             std::istringstream iss(config_content);
             std::string line;
             while (std::getline(iss, line)) {
                 if (line.substr(0, 10) == "fast_mode=") {
-                    new_config += "fast_mode=" + std::string(body == "fast_mode=1" ? "1" : "0") + "\n";
-                    found = true;
-                } else if (!line.empty()) {
-                    new_config += line + "\n";
+                    current_fast = atoi(line.substr(10).c_str());
+                    found_fast = true;
+                } else if (line.substr(0, 14) == "overlay_style=") {
+                    current_style = atoi(line.substr(14).c_str());
+                    found_style = true;
                 }
             }
-            if (!found) {
-                new_config += std::string(body == "fast_mode=1" ? "fast_mode=1" : "fast_mode=0") + "\n";
+            
+            // 更新配置
+            if (body.find("fast_mode=") != std::string::npos) {
+                current_fast = (body.find("fast_mode=1") != std::string::npos) ? 1 : 0;
             }
+            if (body.find("overlay_style=") != std::string::npos) {
+                size_t pos = body.find("overlay_style=");
+                if (pos != std::string::npos) {
+                    current_style = atoi(body.substr(pos + 14).c_str());
+                }
+            }
+            
+            // 构建新配置
+            new_config = "fast_mode=" + std::to_string(current_fast) + "\n";
+            new_config += "overlay_style=" + std::to_string(current_style) + "\n";
             
             // 写入配置文件
             FILE* wf = fopen("/data/adb/overlay_config", "w");
@@ -581,7 +600,7 @@ public:
             
             // 返回当前配置
             char resp[256];
-            snprintf(resp, sizeof(resp), "{\"fast_mode\":%d}", body == "fast_mode=1" ? 1 : 0);
+            snprintf(resp, sizeof(resp), "{\"fast_mode\":%d,\"overlay_style\":%d}", current_fast, current_style);
             kernel_module::webui::send_text(conn, 200, resp);
             return true;
         }

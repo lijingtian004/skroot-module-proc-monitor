@@ -32,6 +32,9 @@ static ANativeWindow* g_win = nullptr;
 // ====== 配置 ======
 static int g_fetch_interval_us = 5000000;  // 默认5秒
 static bool g_fast_mode = false;  // 快速刷新模式
+static int g_overlay_style = 0;  // 0=当前样式(黑色半透明), 1=透明样式
+
+// ====== 数据 ======
 struct OverlayData {
     double cpu_total = 0;
     double cpu_cores[8] = {};  // 8核心
@@ -144,7 +147,7 @@ static double getDumpsysFPS() {
 }
 
 static void fetch_data() {
-    // 读取刷新配置 - 每次都读取，确保配置同步
+    // 读取配置 - 每次都读取
     {
         FILE* cfg = fopen("/data/adb/overlay_config", "r");
         if (cfg) {
@@ -156,7 +159,13 @@ static void fetch_data() {
                     if (new_mode != g_fast_mode) {
                         g_fast_mode = new_mode;
                         g_fetch_interval_us = g_fast_mode ? 2000000 : 5000000;
-                        LOGI("config changed: fast_mode=%d, interval=%dus", g_fast_mode, g_fetch_interval_us);
+                        LOGI("config: fast_mode=%d", g_fast_mode);
+                    }
+                } else if (strncmp(line, "overlay_style=", 14) == 0) {
+                    int new_style = atoi(line + 14);
+                    if (new_style != g_overlay_style) {
+                        g_overlay_style = new_style;
+                        LOGI("config: overlay_style=%d", g_overlay_style);
                     }
                 }
             }
@@ -189,7 +198,16 @@ static void fetch_data() {
     }
     pthread_mutex_unlock(&g_data_mtx);
 }
-static void* data_thread(void*){while(g_running){fetch_data();usleep(g_fetch_interval_us);}return nullptr;}
+static void* data_thread(void*){
+    while(g_running){
+        fetch_data();
+        // 短循环sleep，使配置变化更快生效
+        for(int i = 0; i < g_fetch_interval_us / 500000 && g_running; i++) {
+            usleep(500000);  // 500ms
+        }
+    }
+    return nullptr;
+}
 
 // ====== 7x10 bitmap font (更清晰的字体) ======
 static const uint8_t FONT_7x10[][10] = {
@@ -397,7 +415,7 @@ static void* touch_thread(void*) {
                     // DOWN: 处理新触摸（包括UP丢失的恢复）
                     if(tid>=0){LOGI("MISSED UP! old_tid=%d force reset",tid);touching=false;dragging=false;}
                     float sx=cx*g_scale_x, sy=cy*g_scale_y;
-                    int ww=g_screen_w*0.40f;
+                    int ww=g_screen_w*0.35f;
                     int padding=ww*0.025f;
                     int font_scale=ww/140;
                     if(font_scale<2)font_scale=2;
@@ -436,7 +454,7 @@ static void* touch_thread(void*) {
             float sx=cx*g_scale_x, sy=cy*g_scale_y;
             if(g_skip_first_syn){g_skip_first_syn=false;g_last_sx=sx;g_last_sy=sy;LOGI("SKIP first SYN");continue;}
             // 检查手指是否还在窗口区域内（含外扩padding）
-            int ww=g_screen_w*0.40f;
+            int ww=g_screen_w*0.35f;
             int padding=ww*0.025f;
             int font_scale=ww/140;if(font_scale<2)font_scale=2;
             int big_fs=font_scale*2;if(big_fs<4)big_fs=4;
@@ -498,7 +516,7 @@ static void render_frame() {
 
     // 窗口参数
     int wx = (int)g_win_x, wy = (int)g_win_y;
-    int ww = g_screen_w * 0.40f;  // 缩小到40%
+    int ww = g_screen_w * 0.35f;  // 缩小到40%
     int pad = ww * 0.025f;
     int gap = pad / 2;
     int col_w = (ww - 2*pad - 2*gap) / 3;
@@ -517,8 +535,16 @@ static void render_frame() {
     // 清空整个buffer为透明黑色
     memset(px, 0, stride * h * 4);
 
-    // 背景（黑色半透明）
-    fill_rounded_rect(px, stride, w, h, wx, wy, ww, wh, ww*0.03f, make_rgba(0,0,0,150));
+    // 根据样式绘制背景
+    uint32_t bg_color;
+    if (g_overlay_style == 1) {
+        // 透明样式：更透明的背景
+        bg_color = make_rgba(0, 0, 0, 80);  // 非常透明
+    } else {
+        // 默认样式：黑色半透明
+        bg_color = make_rgba(0, 0, 0, 150);
+    }
+    fill_rounded_rect(px, stride, w, h, wx, wy, ww, wh, ww*0.03f, bg_color);
 
     uint32_t white = make_rgba(255,255,255,255);
     uint32_t dim = make_rgba(180,180,180,200);

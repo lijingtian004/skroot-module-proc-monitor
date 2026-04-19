@@ -545,6 +545,7 @@ async function fetchOverlayStatus() {
 
 // ============ Fast Refresh Toggle ============
 let lastFetchedFastMode = -1;  // 记录上次获取的值，避免无谓更新
+let lastFetchedStyle = -1;  // 记录上次获取的样式
 
 async function toggleFastRefresh() {
   const checkbox = document.getElementById('fastRefreshToggle');
@@ -560,14 +561,34 @@ async function toggleFastRefresh() {
   } catch(e) {}
 }
 
+async function changeOverlayStyle() {
+  const select = document.getElementById('overlayStyleSelect');
+  const style = parseInt(select.value);
+  const config = `overlay_style=${style}`;
+  const result = await api('/api/overlay-config', config);
+  if (result) try {
+    const d = JSON.parse(result);
+    if (d.overlay_style !== undefined) {
+      lastFetchedStyle = d.overlay_style;
+      select.value = d.overlay_style;
+    }
+  } catch(e) {}
+}
+
 async function fetchOverlayConfig() {
   const raw = await api('/api/overlay-config');
   if (raw) try {
     const d = JSON.parse(raw);
     const checkbox = document.getElementById('fastRefreshToggle');
+    const select = document.getElementById('overlayStyleSelect');
+    
     if (checkbox && d.fast_mode !== undefined && d.fast_mode !== lastFetchedFastMode) {
       lastFetchedFastMode = d.fast_mode;
       checkbox.checked = d.fast_mode === 1;
+    }
+    if (select && d.overlay_style !== undefined && d.overlay_style !== lastFetchedStyle) {
+      lastFetchedStyle = d.overlay_style;
+      select.value = d.overlay_style;
     }
   } catch(e) {}
 }
