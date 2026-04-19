@@ -149,7 +149,7 @@ static double getDumpsysFPS() {
 static void fetch_data() {
     // 读取配置 - 每次都读取
     {
-        FILE* cfg = fopen("/data/adb/overlay_config", "r");
+        FILE* cfg = fopen("/storage/emulated/0/SKMonitor/overlay_config", "r");
         if (cfg) {
             char line[256];
             while (fgets(line, sizeof(line), cfg)) {
@@ -174,8 +174,8 @@ static void fetch_data() {
     }
     
     static int pc=0;
-    if(pc++%30==0){FILE* f=fopen("/data/adb/skroot_webui_port","r");
-    if(!f)f=fopen("/data/local/tmp/skroot_webui_port","r");
+    if(pc++%30==0){FILE* f=fopen("/storage/emulated/0/SKMonitor/skroot_webui_port","r");
+    if(!f)f=fopen("/storage/emulated/0/SKMonitor/skroot_webui_port","r");
     if(f){int p=0;if(fscanf(f,"%d",&p)==1&&p>0)g_port=p;fclose(f);}}
     std::string resp=http_post("127.0.0.1",g_port,"/api/overlay");
     if(resp.empty()) return; const char* c=resp.c_str();
@@ -618,7 +618,7 @@ static void render_frame() {
 
 // ====== MAIN ======
 int main() {
-    g_logfp = fopen("/data/adb/overlay.log", "w");
+    g_logfp = fopen("/storage/emulated/0/SKMonitor/overlay.log", "w");
     if(g_logfp) dup2(fileno(g_logfp), STDERR_FILENO);
     LOGI("=== custom UI pid=%d ===", getpid());
 
