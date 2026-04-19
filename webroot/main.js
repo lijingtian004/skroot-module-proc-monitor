@@ -706,8 +706,31 @@ async function fetchConfig() {
 async function toggleApiKey() {
   const toggle = document.getElementById('apiKeyToggle');
   const val = toggle.checked ? '1' : '0';
-  await apiPost('/api/config', 'api_key_enabled=' + val);
+  const resp = await apiPost('/api/apikey-toggle', 'enabled=' + val);
+  try {
+    const d = JSON.parse(resp);
+    if (d.enabled && d.key) {
+      apiKey = d.key;
+      localStorage.setItem('skroot_api_key', d.key);
+      alert('API Key 已启用: ' + d.key.substring(0, 8) + '...\nKey 已复制到剪贴板');
+      navigator.clipboard.writeText(d.key);
+    } else {
+      apiKey = '';
+      localStorage.removeItem('skroot_api_key');
+    }
+  } catch(e) {}
   lastApiKeyId = toggle.checked;
+}
+
+// 加载 API Key 状态
+async function loadApiKeyStatus() {
+  try {
+    const resp = await apiGet('/api/apikey-status');
+    const d = JSON.parse(resp);
+    const toggle = document.getElementById('apiKeyToggle');
+    if (toggle) toggle.checked = d.enabled === true;
+    lastApiKeyId = d.enabled;
+  } catch(e) {}
 }
 
 async function toggleDualBattery() {
@@ -797,5 +820,6 @@ async function initApiKey() {
 // ============ Init ============
 document.addEventListener('DOMContentLoaded', async () => {
   await initApiKey();
+  await loadApiKeyStatus();
   startPolling();
 });

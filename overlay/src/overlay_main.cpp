@@ -33,6 +33,25 @@ static ANativeWindow* g_win = nullptr;
 static int g_fetch_interval_us = 5000000;  // 默认5秒
 static bool g_fast_mode = false;  // 快速刷新模式
 static int g_overlay_style = 0;  // 0=当前样式(黑色半透明), 1=透明样式
+static std::string g_api_key = "";  // API Key
+
+// 读取API Key
+static void load_api_key() {
+    FILE* f = fopen("/data/adb/proc_monitor_api_key", "r");
+    if (!f) f = fopen("/data/local/tmp/proc_monitor_api_key", "r");
+    if (f) {
+        char buf[64] = {0};
+        if (fgets(buf, sizeof(buf), f)) {
+            char* nl = strchr(buf, '\n');
+            if (nl) *nl = 0;
+            g_api_key = buf;
+            LOGI("loaded API key: %s", g_api_key.c_str());
+        }
+        fclose(f);
+    } else {
+        LOGI("no API key file found, trying without auth");
+    }
+}
 
 // ====== 数据 ======
 struct OverlayData {
@@ -81,7 +100,16 @@ static std::string http_post(const char* host, int port, const char* path) {
     setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
     setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
     if(connect(fd,(sockaddr*)&a,sizeof(a))<0){close(fd);return r;}
-    char req[256]; int len=snprintf(req,sizeof(req),"POST %s HTTP/1.0\r\nHost: %s\r\nContent-Length: 0\r\n\r\n",path,host);
+    char req[512]; int len;
+    if (!g_api_key.empty()) {
+        len=snprintf(req,sizeof(req),
+            "POST %s HTTP/1.0\r\nHost: %s\r\nX-API-Key: %s\r\nContent-Length: 0\r\n\r\n",
+            path,host,g_api_key.c_str());
+    } else {
+        len=snprintf(req,sizeof(req),
+            "POST %s HTTP/1.0\r\nHost: %s\r\nContent-Length: 0\r\n\r\n",
+            path,host);
+    }
     send(fd,req,len,0); char buf[4096]; int n;
     while((n=recv(fd,buf,sizeof(buf)-1,0))>0){buf[n]=0;r+=buf;}
     close(fd); auto pos=r.find("\r\n\r\n");
@@ -199,7 +227,16 @@ static void fetch_data() {
     pthread_mutex_unlock(&g_data_mtx);
 }
 static void* data_thread(void*){
+    static int last_key_reload = 0;
     while(g_running){
+        // 每30秒重新加载API Key（允许运行时更新）
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        if (ts.tv_sec - last_key_reload > 30) {
+            load_api_key();
+            last_key_reload = ts.tv_sec;
+        }
+        
         fetch_data();
         // 短循环sleep，使配置变化更快生效
         for(int i = 0; i < g_fetch_interval_us / 500000 && g_running; i++) {
@@ -632,6 +669,9 @@ int main() {
     g_screen_w = di.width>0?di.width:1080;
     g_screen_h = di.height>0?di.height:2400;
     LOGI("display: %dx%d", g_screen_w, g_screen_h);
+
+    // 读取 API Key
+    load_api_key();
 
     g_win = android::ANativeWindowCreator::Create("SKRootOverlay", g_screen_w, g_screen_h);
     if (!g_win) { LOGE("window failed"); return 1; }

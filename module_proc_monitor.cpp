@@ -357,6 +357,7 @@ static void stop_overlay() {
 
 // API Key 认证（存储在文件中）
 static std::string g_api_key;
+static bool g_api_key_enabled = false;  // API Key验证开关（默认关闭）
 
 // 生成随机 API Key
 static std::string generate_api_key() {
@@ -403,6 +404,23 @@ static void init_api_key(const char* module_dir) {
     LOGI("[module_proc_monitor] ========================================\n");
 }
 
+// 加载API Key开关状态
+static void load_api_key_enabled(const char* module_dir) {
+    char path[512];
+    snprintf(path, sizeof(path), "%s/api_key_enabled", module_dir);
+    
+    FILE* f = fopen(path, "r");
+    if (f) {
+        char buf[8] = {0};
+        if (fgets(buf, sizeof(buf), f)) {
+            g_api_key_enabled = (atoi(buf) == 1);
+        }
+        fclose(f);
+    }
+    
+    LOGI("[module_proc_monitor] API Key verification: %s\n", g_api_key_enabled ? "ENABLED" : "DISABLED");
+}
+
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
     // 创建存储目录
     mkdir("/storage/emulated/0/SKMonitor", 0755);
@@ -441,6 +459,9 @@ public:
 
         // 初始化 API Key
         init_api_key(module_private_dir);
+        
+        // 加载API Key开关状态
+        load_api_key_enabled(module_private_dir);
 
         // 写端口到文件，供悬浮窗应用读取（权限 0600）
         int fd = open("/storage/emulated/0/SKMonitor/skroot_webui_port", O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -461,6 +482,11 @@ public:
 
     // 验证 API Key
     bool verifyApiKey(struct mg_connection* conn) {
+        // 如果API Key验证被禁用，直接返回true
+        if (!g_api_key_enabled) {
+            return true;
+        }
+        
         // 从请求头获取 API Key
         const char* api_key_header = mg_get_header(conn, "X-API-Key");
         if (!api_key_header) {
@@ -802,6 +828,62 @@ public:
             char resp[128];
             snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
             kernel_module::webui::send_text(conn, 200, resp);
+            return true;
+        }
+
+        // API Key开关状态
+        if (path == "/api/apikey-status") {
+            char resp[128];
+            snprintf(resp, sizeof(resp), "{\"enabled\":%s}", g_api_key_enabled ? "true" : "false");
+            kernel_module::webui::send_text(conn, 200, resp);
+            return true;
+        }
+
+        // 切换API Key验证
+        if (path == "/api/apikey-toggle") {
+            // 解析body中的enabled参数
+            bool new_enabled = (body.find("enabled=1") != std::string::npos) ||
+                               (body.find("\"enabled\":true") != std::string::npos);
+            
+            g_api_key_enabled = new_enabled;
+            
+            // 保存到文件
+            char path[512];
+            snprintf(path, sizeof(path), "%s/api_key_enabled", g_module_dir.c_str());
+            int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+            if (fd >= 0) {
+                char buf[8];
+                int len = snprintf(buf, sizeof(buf), "%d\n", g_api_key_enabled ? 1 : 0);
+                write(fd, buf, len);
+                close(fd);
+            }
+            
+            // 如果启用，确保有API Key
+            if (g_api_key_enabled && g_api_key.empty()) {
+                g_api_key = generate_api_key();
+                char key_path[512];
+                snprintf(key_path, sizeof(key_path), "%s/api_key", g_module_dir.c_str());
+                int kfd = open(key_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+                if (kfd >= 0) {
+                    write(kfd, g_api_key.c_str(), g_api_key.size());
+                    close(kfd);
+                }
+                // 同时写入overlay可读取的路径
+                int ofd = open("/data/adb/proc_monitor_api_key", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (ofd >= 0) {
+                    write(ofd, g_api_key.c_str(), g_api_key.size());
+                    close(ofd);
+                }
+            }
+            
+            char resp[256];
+            if (g_api_key_enabled) {
+                snprintf(resp, sizeof(resp), "{\"enabled\":true,\"key\":\"%s\"}", g_api_key.c_str());
+            } else {
+                snprintf(resp, sizeof(resp), "{\"enabled\":false,\"key\":\"\"}");
+            }
+            kernel_module::webui::send_text(conn, 200, resp);
+            LOGI("[module_proc_monitor] API Key verification %s\n", g_api_key_enabled ? "ENABLED" : "DISABLED");
             return true;
         }
 
