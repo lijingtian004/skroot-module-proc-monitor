@@ -16,6 +16,19 @@
 #include <dirent.h>
 #include <fcntl.h>
 
+// Android logging
+#ifdef __ANDROID__
+#include <android/log.h>
+#define LOG_TAG "ProcMonitor"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#else
+#define LOGI(...) printf(__VA_ARGS__)
+#define LOGW(...) printf(__VA_ARGS__)
+#define LOGE(...) printf(__VA_ARGS__)
+#endif
+
 #include "kernel_module_kit_umbrella.h"
 #include "proc_scanner.h"
 
@@ -384,9 +397,9 @@ static void init_api_key(const char* module_dir) {
     }
     
     // 打印 API Key（仅在模块启动时）
-    printf("[module_proc_monitor] ========================================\n");
-    printf("[module_proc_monitor] API Key: %s\n", g_api_key.c_str());
-    printf("[module_proc_monitor] ========================================\n");
+    LOGI("[module_proc_monitor] ========================================\n");
+    LOGI("[module_proc_monitor] API Key: %s\n", g_api_key.c_str());
+    LOGI("[module_proc_monitor] ========================================\n");
 }
 
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
