@@ -83,7 +83,6 @@ static std::string build_procs_json(const std::vector<ProcInfo>& procs) {
         cJSON_AddNumberToObject(obj, "uid",  (double)p.uid);
         cJSON_AddStringToObject(obj, "comm", p.comm);
         cJSON_AddStringToObject(obj, "cmdline", p.cmdline);
-        cJSON_AddNumberToObject(obj, "cpu_sec", p.cpu_usage_pct);
         cJSON_AddItemToArray(arr, obj);
     }
     char* raw = cJSON_PrintUnformatted(arr);
@@ -358,7 +357,6 @@ static void stop_overlay() {
 
 // API Key 认证（存储在文件中）
 static std::string g_api_key;
-static bool g_api_key_enabled = false;  // 默认关闭
 
 // 生成随机 API Key
 static std::string generate_api_key() {
@@ -373,26 +371,6 @@ static std::string generate_api_key() {
 
 // 加载或生成 API Key
 static void init_api_key(const char* module_dir) {
-    // 读取 API Key 开关配置
-    char config_path[512];
-    snprintf(config_path, sizeof(config_path), "%s/api_key_config", module_dir);
-    FILE* cf = fopen(config_path, "r");
-    if (cf) {
-        char line[64];
-        while (fgets(line, sizeof(line), cf)) {
-            if (strncmp(line, "enabled=", 8) == 0) {
-                g_api_key_enabled = (atoi(line + 8) == 1);
-            }
-        }
-        fclose(cf);
-    }
-    
-    // 如果禁用 API Key，直接返回
-    if (!g_api_key_enabled) {
-        LOGI("[module_proc_monitor] API Key authentication disabled\n");
-        return;
-    }
-    
     char path[512];
     snprintf(path, sizeof(path), "%s/api_key", module_dir);
     
@@ -426,8 +404,6 @@ static void init_api_key(const char* module_dir) {
 }
 
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
-    mkdir("/storage/emulated/0/SKMonitor", 0755);
-
     // 创建存储目录
     mkdir("/storage/emulated/0/SKMonitor", 0755);
 
@@ -485,9 +461,6 @@ public:
 
     // 验证 API Key
     bool verifyApiKey(struct mg_connection* conn) {
-        // 如果禁用 API Key，直接返回 true
-        if (!g_api_key_enabled) return true;
-        
         // 从请求头获取 API Key
         const char* api_key_header = mg_get_header(conn, "X-API-Key");
         if (!api_key_header) {
@@ -643,10 +616,8 @@ public:
                 }
                 fclose(rf);
             }
-            char resp[256];
-            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s,\"api_key_enabled\":%s}", 
-                     dual_battery ? "true" : "false",
-                     g_api_key_enabled ? "true" : "false");
+            char resp[128];
+            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
             kernel_module::webui::send_text(conn, 200, resp);
             return true;
         }
@@ -828,10 +799,8 @@ public:
             }
             // 立即更新运行时变量
             power_tracker_set_dual_battery(dual_battery);
-            char resp[256];
-            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s,\"api_key_enabled\":%s}", 
-                     dual_battery ? "true" : "false",
-                     g_api_key_enabled ? "true" : "false");
+            char resp[128];
+            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
             kernel_module::webui::send_text(conn, 200, resp);
             return true;
         }
@@ -840,87 +809,23 @@ public:
         if (path == "/api/kill-process") {
             // body 格式: "uid=10123" 或 "{\"uid\":10123}"
             int uid = -1;
-            // 尝试解析 uid
+            // 尝试解析 uid（只取数字部分）
             size_t pos = body.find("uid=");
             if (pos != std::string::npos) {
-                uid = atoi(body.c_str() + pos + 4);
+                const char* start = body.c_str() + pos + 4;
+                uid = atoi(start);  // atoi 只解析开头的数字
             } else {
                 pos = body.find("\"uid\":");
                 if (pos != std::string::npos) {
-                    uid = atoi(body.c_str() + pos + 6);
+                    const char* start = body.c_str() + pos + 6;
+                    uid = atoi(start);
                 }
             }
 
-            // 验证 UID 范围
+            // 验证 UID 范围 (Android UID: 0-99999)
             if (uid < 0 || uid > 99999) {
                 kernel_module::webui::send_text(conn, 400, "{\"error\":\"invalid uid range\"}");
                 return true;
-            }
-
-            // 获取包名
-            char pkg[256] = {0};
-            FILE* f = fopen("/data/system/packages.list", "r");
-            if (f) {
-                char line[512];
-                char uid_str[32];
-                snprintf(uid_str, sizeof(uid_str), " %d ", uid);
-                while (fgets(line, sizeof(line), f)) {
-                    if (strstr(line, uid_str)) {
-                        char* space = strchr(line, ' ');
-                        if (space) {
-                            size_t len = space - line;
-                            if (len < sizeof(pkg)) {
-                                memcpy(pkg, line, len);
-                                pkg[len] = '\0';
-                            }
-                        }
-                        break;
-                    }
-                }
-                fclose(f);
-            }
-
-            // 直接杀掉该 UID 的所有进程（使用 kill 系统调用）
-            int killed = 0;
-            DIR* dir = opendir("/proc");
-            if (dir) {
-                struct dirent* ent;
-                while ((ent = readdir(dir)) != nullptr) {
-                    if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
-                    pid_t pid = (pid_t)atoi(ent->d_name);
-                    
-                    // 读取进程 UID
-                    char path[64];
-                    snprintf(path, sizeof(path), "/proc/%d/status", pid);
-                    FILE* sf = fopen(path, "r");
-                    if (!sf) continue;
-                    
-                    uid_t proc_uid = (uid_t)-1;
-                    char line[256];
-                    while (fgets(line, sizeof(line), sf)) {
-                        if (strncmp(line, "Uid:", 4) == 0) {
-                            proc_uid = (uid_t)strtoul(line + 4, nullptr, 10);
-                            break;
-                        }
-                    }
-                    fclose(sf);
-                    
-                    // 如果是目标 UID 的进程，杀掉它
-                    if (proc_uid == (uid_t)uid) {
-                        if (kill(pid, SIGKILL) == 0) {
-                            killed++;
-                        }
-                    }
-                }
-                closedir(dir);
-            }
-
-            char resp[256];
-            snprintf(resp, sizeof(resp), "{\"success\":true,\"uid\":%d,\"package\":\"%s\",\"killed\":%d}",
-                     uid, pkg, killed);
-            kernel_module::webui::send_text(conn, 200, resp);
-            return true;
-        }
             }
 
             // 安全获取包名：直接读取文件，不使用 shell
