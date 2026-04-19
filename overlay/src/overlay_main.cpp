@@ -81,6 +81,40 @@ static std::string http_post(const char* host, int port, const char* path) {
     close(fd); auto pos=r.find("\r\n\r\n");
     if(pos!=std::string::npos) r=r.substr(pos+4); return r;
 }
+// ====== FPS 获取 ======
+static double getSysFSFPS() {
+    const char* paths[] = {
+        "/sys/class/drm/sde-crtc-0/measured_fps",
+        "/sys/class/graphics/fb0/measured_fps",
+        nullptr
+    };
+    
+    for (int i = 0; paths[i] != nullptr; i++) {
+        FILE* f = fopen(paths[i], "r");
+        if (f) {
+            char buf[256];
+            if (fgets(buf, sizeof(buf), f)) {
+                // 格式: "fps: 58.1 duration:500000 frame_count:30"
+                char* p = strstr(buf, "fps:");
+                if (p) {
+                    p += 4;
+                    while (*p == ' ' || *p == '\t') p++;
+                    double fps = atof(p);
+                    fclose(f);
+                    if (fps > 0 && fps <= 200) return fps;
+                }
+                // 或者直接是数字
+                double fps = atof(buf);
+                fclose(f);
+                if (fps > 0 && fps <= 200) return fps;
+            } else {
+                fclose(f);
+            }
+        }
+    }
+    return 0;
+}
+
 static void fetch_data() {
     static int pc=0;
     if(pc++%30==0){FILE* f=fopen("/data/adb/skroot_webui_port","r");
@@ -95,6 +129,11 @@ static void fetch_data() {
     g_data.fg_mem=(int)jnum(c,"fg_mem");
     jstr(c,"fg_app",g_data.fg_app,128);
     g_data.cpu_core_count=jarr(c,"cpu_cores",g_data.cpu_cores,8);
+    // FPS从系统获取
+    double sys_fps = getSysFSFPS();
+    if (sys_fps > 0) {
+        g_data.fps = (int)sys_fps;
+    }
     pthread_mutex_unlock(&g_data_mtx);
 }
 static void* data_thread(void*){while(g_running){fetch_data();usleep(2000000);}return nullptr;}
@@ -144,7 +183,7 @@ static const uint8_t FONT_5x7[][7] = {
     {0x02,0x04,0x08,0x10,0x08,0x04,0x02}, // <
     {0x08,0x04,0x02,0x01,0x02,0x04,0x08}, // >
     {0x00,0x00,0x00,0x00,0x03,0x02,0x02}, // ,
-    {0x0A,0x0A,0x04,0x04,0x0E,0x04,0x04}, // %
+    {0x0A,0x0A,0x04,0x04,0x04,0x0A,0x0A}, // % (正确的百分号)
     {0x04,0x0A,0x0A,0x0A,0x0A,0x04,0x00}, // degree symbol (for °C)
 };
 
@@ -176,13 +215,15 @@ static inline void put_pixel(uint32_t* pixels, int stride, int x, int y, int w, 
             pixels[y * stride + x] = color;
         } else if (a > 0) {
             uint32_t dst = pixels[y * stride + x];
+            uint8_t da = (dst >> 24) & 0xFF;
             uint8_t dr = dst & 0xFF, dg = (dst>>8)&0xFF, db = (dst>>16)&0xFF;
             float fa = a / 255.0f;
-            pixels[y * stride + x] = make_rgba(
-                (uint8_t)(dr + (((int)(color&0xFF) - dr) * fa)),
-                (uint8_t)(dg + (((int)((color>>8)&0xFF) - dg) * fa)),
-                (uint8_t)(db + (((int)((color>>16)&0xFF) - db) * fa)),
-                255);
+            uint8_t nr = (uint8_t)(dr + (((int)(color&0xFF) - dr) * fa));
+            uint8_t ng = (uint8_t)(dg + (((int)((color>>8)&0xFF) - dg) * fa));
+            uint8_t nb = (uint8_t)(db + (((int)((color>>16)&0xFF) - db) * fa));
+            // 混合alpha：如果dst是透明的，使用src的alpha
+            uint8_t na = da == 0 ? a : 255;
+            pixels[y * stride + x] = (uint32_t)nr | ((uint32_t)ng << 8) | ((uint32_t)nb << 16) | ((uint32_t)na << 24);
         }
     }
 }
@@ -397,7 +438,7 @@ static void render_frame() {
     static bool logged_buf=false; if(!logged_buf){LOGI("buf=%dx%d screen=%dx%d",w,h,g_screen_w,g_screen_h);logged_buf=true;}
     uint32_t* px = (uint32_t*)buf.bits;
     int stride = buf.stride;
-    memset(px, 0, stride * h * 4);
+    // 不清零整个buffer，只绘制需要的区域
 
     pthread_mutex_lock(&g_data_mtx);
     OverlayData d = g_data;
@@ -422,6 +463,9 @@ static void render_frame() {
     int wh = content_h + 2 * pad;
 
     // 背景（黑色半透明）
+    // 先清空窗口区域为完全透明
+    fill_rect(px, stride, w, h, wx, wy, ww, wh, make_rgba(0,0,0,0));
+    // 再绘制半透明背景
     fill_rounded_rect(px, stride, w, h, wx, wy, ww, wh, ww*0.03f, make_rgba(0,0,0,150));
 
     uint32_t white = make_rgba(255,255,255,255);
@@ -510,25 +554,9 @@ int main() {
     pthread_create(&tt, nullptr, touch_thread, nullptr);
 
     LOGI("rendering at 30 FPS");
-    // FPS 计算变量
-    static struct timespec last_fps_ts={0,0};
-    static int frame_cnt=0;
-    clock_gettime(CLOCK_MONOTONIC,&last_fps_ts);
     
     while (g_running) {
         render_frame();
-        // FPS 计算
-        frame_cnt++;
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC,&now);
-        double elapsed=(now.tv_sec-last_fps_ts.tv_sec)+(now.tv_nsec-last_fps_ts.tv_nsec)/1e9;
-        if(elapsed>=1.0){
-            pthread_mutex_lock(&g_data_mtx);
-            g_data.fps=(int)(frame_cnt/elapsed);
-            pthread_mutex_unlock(&g_data_mtx);
-            frame_cnt=0;
-            last_fps_ts=now;
-        }
         usleep(33333); // ~30 FPS
     }
 
