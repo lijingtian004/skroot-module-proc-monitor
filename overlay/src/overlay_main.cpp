@@ -85,7 +85,10 @@ static std::string http_post(const char* host, int port, const char* path) {
 static double getSysFSFPS() {
     const char* paths[] = {
         "/sys/class/drm/sde-crtc-0/measured_fps",
+        "/sys/class/drm/card0-DSI-1/measured_fps",
         "/sys/class/graphics/fb0/measured_fps",
+        "/sys/class/drm/card0/device/graphics/fb0/measured_fps",
+        "/d/dri/0/clk_dump_fps",
         nullptr
     };
     
@@ -94,7 +97,7 @@ static double getSysFSFPS() {
         if (f) {
             char buf[256];
             if (fgets(buf, sizeof(buf), f)) {
-                // 格式: "fps: 58.1 duration:500000 frame_count:30"
+                // 格式1: "fps: 58.1 duration:500000 frame_count:30"
                 char* p = strstr(buf, "fps:");
                 if (p) {
                     p += 4;
@@ -103,13 +106,35 @@ static double getSysFSFPS() {
                     fclose(f);
                     if (fps > 0 && fps <= 200) return fps;
                 }
-                // 或者直接是数字
+                // 格式2: 直接是数字
                 double fps = atof(buf);
                 fclose(f);
                 if (fps > 0 && fps <= 200) return fps;
             } else {
                 fclose(f);
             }
+        }
+    }
+    return 0;
+}
+
+// 从dumpsys获取FPS
+static double getDumpsysFPS() {
+    FILE* pipe = popen("dumpsys SurfaceFlinger --latency 2>/dev/null | head -20", "r");
+    if (!pipe) return 0;
+    
+    char buf[1024];
+    std::string output;
+    while (fgets(buf, sizeof(buf), pipe)) {
+        output += buf;
+    }
+    pclose(pipe);
+    
+    // 解析刷新率（第一行通常是刷新周期，如16666666表示60Hz）
+    if (!output.empty()) {
+        long long refresh_ns = atoll(output.c_str());
+        if (refresh_ns > 0) {
+            return 1000000000.0 / refresh_ns;
         }
     }
     return 0;
@@ -133,6 +158,11 @@ static void fetch_data() {
     double sys_fps = getSysFSFPS();
     if (sys_fps > 0) {
         g_data.fps = (int)sys_fps;
+    } else {
+        double dumpsys_fps = getDumpsysFPS();
+        if (dumpsys_fps > 0) {
+            g_data.fps = (int)dumpsys_fps;
+        }
     }
     pthread_mutex_unlock(&g_data_mtx);
 }
@@ -183,7 +213,7 @@ static const uint8_t FONT_5x7[][7] = {
     {0x02,0x04,0x08,0x10,0x08,0x04,0x02}, // <
     {0x08,0x04,0x02,0x01,0x02,0x04,0x08}, // >
     {0x00,0x00,0x00,0x00,0x03,0x02,0x02}, // ,
-    {0x0A,0x0A,0x04,0x04,0x04,0x0A,0x0A}, // % (正确的百分号)
+    {0x0A,0x0A,0x02,0x04,0x08,0x0A,0x0A}, // % (标准百分号)
     {0x04,0x0A,0x0A,0x0A,0x0A,0x04,0x00}, // degree symbol (for °C)
 };
 
@@ -215,15 +245,13 @@ static inline void put_pixel(uint32_t* pixels, int stride, int x, int y, int w, 
             pixels[y * stride + x] = color;
         } else if (a > 0) {
             uint32_t dst = pixels[y * stride + x];
-            uint8_t da = (dst >> 24) & 0xFF;
             uint8_t dr = dst & 0xFF, dg = (dst>>8)&0xFF, db = (dst>>16)&0xFF;
             float fa = a / 255.0f;
-            uint8_t nr = (uint8_t)(dr + (((int)(color&0xFF) - dr) * fa));
-            uint8_t ng = (uint8_t)(dg + (((int)((color>>8)&0xFF) - dg) * fa));
-            uint8_t nb = (uint8_t)(db + (((int)((color>>16)&0xFF) - db) * fa));
-            // 混合alpha：如果dst是透明的，使用src的alpha
-            uint8_t na = da == 0 ? a : 255;
-            pixels[y * stride + x] = (uint32_t)nr | ((uint32_t)ng << 8) | ((uint32_t)nb << 16) | ((uint32_t)na << 24);
+            pixels[y * stride + x] = make_rgba(
+                (uint8_t)(dr + (((int)(color&0xFF) - dr) * fa)),
+                (uint8_t)(dg + (((int)((color>>8)&0xFF) - dg) * fa)),
+                (uint8_t)(db + (((int)((color>>16)&0xFF) - db) * fa)),
+                255);
         }
     }
 }
@@ -438,34 +466,32 @@ static void render_frame() {
     static bool logged_buf=false; if(!logged_buf){LOGI("buf=%dx%d screen=%dx%d",w,h,g_screen_w,g_screen_h);logged_buf=true;}
     uint32_t* px = (uint32_t*)buf.bits;
     int stride = buf.stride;
-    // 不清零整个buffer，只绘制需要的区域
-
+    
     pthread_mutex_lock(&g_data_mtx);
     OverlayData d = g_data;
     pthread_mutex_unlock(&g_data_mtx);
 
-    // 窗口参数（必须和触摸线程用同一变量计算，保持一致）
+    // 窗口参数
     int wx = (int)g_win_x, wy = (int)g_win_y;
     int ww = g_screen_w * 0.45f;
-    int pad = ww * 0.03f;         // 内边距
-    int gap = pad / 2;            // 列间距
-    int col_w = (ww - 2*pad - 2*gap) / 3;  // 每列宽度
-    int fs = ww / 120;            // 基础字体缩放
+    int pad = ww * 0.03f;
+    int gap = pad / 2;
+    int col_w = (ww - 2*pad - 2*gap) / 3;
+    int fs = ww / 120;
     if (fs < 2) fs = 2;
-    int big_fs = fs * 3;          // 大号字体
-    int lh = 8 * fs;              // 行高
+    int big_fs = fs * 3;
+    int lh = 8 * fs;
     int big_lh = 8 * big_fs;
 
-    // 窗口高度：上块70% + 下块30% + padding（移除标签后简化）
-    int top_h = big_lh;  // 大字高度（或柱状图）
-    int bot_h = lh + fs;  // 小字
+    int top_h = big_lh;
+    int bot_h = lh + fs;
     int content_h = top_h + bot_h + pad;
     int wh = content_h + 2 * pad;
+    
+    // 清空整个buffer为透明黑色
+    memset(px, 0, stride * h * 4);
 
     // 背景（黑色半透明）
-    // 先清空窗口区域为完全透明
-    fill_rect(px, stride, w, h, wx, wy, ww, wh, make_rgba(0,0,0,0));
-    // 再绘制半透明背景
     fill_rounded_rect(px, stride, w, h, wx, wy, ww, wh, ww*0.03f, make_rgba(0,0,0,150));
 
     uint32_t white = make_rgba(255,255,255,255);
