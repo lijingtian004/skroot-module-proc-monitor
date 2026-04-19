@@ -425,6 +425,21 @@ public:
             kernel_module::webui::send_text(conn, 200, buf);
             return true;
         }
+        if (path == "/api/overlay-config") {
+            char buf[256] = "{\"fast_mode\":0}";
+            FILE* f = fopen("/data/adb/overlay_config", "r");
+            if (f) {
+                char line[256];
+                while (fgets(line, sizeof(line), f)) {
+                    if (strncmp(line, "fast_mode=", 10) == 0) {
+                        snprintf(buf, sizeof(buf), "{\"fast_mode\":%d}", atoi(line + 10));
+                    }
+                }
+                fclose(f);
+            }
+            kernel_module::webui::send_text(conn, 200, buf);
+            return true;
+        }
         return false;
     }
 
@@ -522,6 +537,29 @@ public:
             char buf[128];
             snprintf(buf, sizeof(buf), "{\"running\":%s,\"pid\":%d}",
                      is_overlay_running() ? "true" : "false", (int)g_overlay_pid);
+            kernel_module::webui::send_text(conn, 200, buf);
+            return true;
+        }
+
+        if (path == "/api/overlay-config") {
+            // 写入配置文件
+            FILE* cfg = fopen("/data/adb/overlay_config", "w");
+            if (cfg) {
+                fwrite(body.c_str(), 1, body.size(), cfg);
+                fclose(cfg);
+            }
+            // 返回当前配置
+            char buf[256] = "{\"fast_mode\":0}";
+            FILE* f = fopen("/data/adb/overlay_config", "r");
+            if (f) {
+                char line[256];
+                while (fgets(line, sizeof(line), f)) {
+                    if (strncmp(line, "fast_mode=", 10) == 0) {
+                        snprintf(buf, sizeof(buf), "{\"fast_mode\":%d}", atoi(line + 10));
+                    }
+                }
+                fclose(f);
+            }
             kernel_module::webui::send_text(conn, 200, buf);
             return true;
         }

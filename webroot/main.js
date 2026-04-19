@@ -543,9 +543,28 @@ async function fetchOverlayStatus() {
   } catch(e) {}
 }
 
+// ============ Fast Refresh Toggle ============
+async function toggleFastRefresh() {
+  const checkbox = document.getElementById('fastRefreshToggle');
+  const fastMode = checkbox.checked ? 1 : 0;
+  const config = `fast_mode=${fastMode}\n`;
+  await api('/api/overlay-config', config);
+}
+
+async function fetchOverlayConfig() {
+  const raw = await api('/api/overlay-config');
+  if (raw) try {
+    const d = JSON.parse(raw);
+    const checkbox = document.getElementById('fastRefreshToggle');
+    if (checkbox && d.fast_mode !== undefined) {
+      checkbox.checked = d.fast_mode === 1;
+    }
+  } catch(e) {}
+}
+
 // ============ Polling ============
 async function pollAll() {
-  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs(), fetchCharging(), fetchOverlayStatus()]);
+  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs(), fetchCharging(), fetchOverlayStatus(), fetchOverlayConfig()]);
   const dot = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
   dot.classList.add('online');

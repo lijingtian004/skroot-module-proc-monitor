@@ -28,7 +28,9 @@ static int g_port = 10273;
 static int g_screen_w = 1080, g_screen_h = 2400;
 static ANativeWindow* g_win = nullptr;
 
-// ====== 数据 ======
+// ====== 配置 ======
+static int g_fetch_interval_us = 5000000;  // 默认5秒
+static bool g_fast_mode = false;  // 快速刷新模式
 struct OverlayData {
     double cpu_total = 0;
     double cpu_cores[8] = {};  // 8核心
@@ -141,6 +143,22 @@ static double getDumpsysFPS() {
 }
 
 static void fetch_data() {
+    // 读取刷新配置
+    static int config_check = 0;
+    if (config_check++ % 10 == 0) {
+        FILE* cfg = fopen("/data/adb/overlay_config", "r");
+        if (cfg) {
+            char line[256];
+            while (fgets(line, sizeof(line), cfg)) {
+                if (strncmp(line, "fast_mode=", 10) == 0) {
+                    g_fast_mode = (atoi(line + 10) != 0);
+                    g_fetch_interval_us = g_fast_mode ? 2000000 : 5000000;
+                }
+            }
+            fclose(cfg);
+        }
+    }
+    
     static int pc=0;
     if(pc++%30==0){FILE* f=fopen("/data/adb/skroot_webui_port","r");
     if(!f)f=fopen("/data/local/tmp/skroot_webui_port","r");
@@ -166,7 +184,7 @@ static void fetch_data() {
     }
     pthread_mutex_unlock(&g_data_mtx);
 }
-static void* data_thread(void*){while(g_running){fetch_data();usleep(2000000);}return nullptr;}
+static void* data_thread(void*){while(g_running){fetch_data();usleep(g_fetch_interval_us);}return nullptr;}
 
 // ====== 5x7 bitmap font ======
 static const uint8_t FONT_5x7[][7] = {
@@ -373,11 +391,12 @@ static void* touch_thread(void*) {
                     // DOWN: 处理新触摸（包括UP丢失的恢复）
                     if(tid>=0){LOGI("MISSED UP! old_tid=%d force reset",tid);touching=false;dragging=false;}
                     float sx=cx*g_scale_x, sy=cy*g_scale_y;
-                    int ww=g_screen_w*0.45f;
-                    int padding=ww*0.03f;
-                    int font_scale=ww/120;
-                    if(font_scale<2)font_scale=2;
-                    int big_fs=font_scale*3;
+                    int ww=g_screen_w*0.50f;
+                    int padding=ww*0.025f;
+                    int font_scale=ww/100;
+                    if(font_scale<3)font_scale=3;
+                    int big_fs=font_scale*2.5f;
+                    if(big_fs<6)big_fs=6;
                     // 窗口高度计算（与render_frame一致）
                     int big_lh=8*big_fs;
                     int top_h=big_lh;  // 大字高度
@@ -411,10 +430,10 @@ static void* touch_thread(void*) {
             float sx=cx*g_scale_x, sy=cy*g_scale_y;
             if(g_skip_first_syn){g_skip_first_syn=false;g_last_sx=sx;g_last_sy=sy;LOGI("SKIP first SYN");continue;}
             // 检查手指是否还在窗口区域内（含外扩padding）
-            int ww=g_screen_w*0.45f;
-            int padding=ww*0.03f;
-            int font_scale=ww/120;if(font_scale<2)font_scale=2;
-            int big_fs=font_scale*3;
+            int ww=g_screen_w*0.50f;
+            int padding=ww*0.025f;
+            int font_scale=ww/100;if(font_scale<3)font_scale=3;
+            int big_fs=font_scale*2.5f;if(big_fs<6)big_fs=6;
             // 窗口高度计算（与render_frame一致）
             int big_lh=8*big_fs;
             int top_h=big_lh;  // 大字高度
@@ -473,13 +492,14 @@ static void render_frame() {
 
     // 窗口参数
     int wx = (int)g_win_x, wy = (int)g_win_y;
-    int ww = g_screen_w * 0.45f;
-    int pad = ww * 0.03f;
+    int ww = g_screen_w * 0.50f;  // 增加窗口宽度到50%
+    int pad = ww * 0.025f;  // 减小内边距
     int gap = pad / 2;
     int col_w = (ww - 2*pad - 2*gap) / 3;
-    int fs = ww / 120;
-    if (fs < 2) fs = 2;
-    int big_fs = fs * 3;
+    int fs = ww / 100;  // 增大基础字体
+    if (fs < 3) fs = 3;
+    int big_fs = fs * 2.5f;  // 大字体比例调整
+    if (big_fs < 6) big_fs = 6;
     int lh = 8 * fs;
     int big_lh = 8 * big_fs;
 
