@@ -837,24 +837,6 @@ public:
         }
 
         // 结束进程 - 安全实现
-        if (path == "/api/kill-process") {
-            // body 格式: "uid=10123" 或 "{\"uid\":10123}"
-            int uid = -1;
-            // 尝试解析 uid
-            size_t pos = body.find("uid=");
-            if (pos != std::string::npos) {
-                uid = atoi(body.c_str() + pos + 4);
-            } else {
-                pos = body.find("\"uid\":");
-                if (pos != std::string::npos) {
-                    uid = atoi(body.c_str() + pos + 6);
-                }
-            }
-
-            // 验证 UID 范围
-            if (uid < 0 || uid > 99999) {
-                kernel_module::webui::send_text(conn, 400, "{\"error\":\"invalid uid range\"}");
-                return true;
             }
 
             // 获取包名
@@ -992,7 +974,86 @@ public:
             return true;
         }
 
-        return false;
+                // 结束进程 - 使用 kill 系统调用
+        if (path == "/api/kill-process") {
+            int uid = -1;
+            size_t pos = body.find("uid=");
+            if (pos != std::string::npos) {
+                uid = atoi(body.c_str() + pos + 4);
+            } else {
+                pos = body.find("\"uid\":");
+                if (pos != std::string::npos) {
+                    uid = atoi(body.c_str() + pos + 6);
+                }
+            }
+
+            if (uid < 0 || uid > 99999) {
+                kernel_module::webui::send_text(conn, 400, "{\"error\":\"invalid uid range\"}");
+                return true;
+            }
+
+            char pkg[256] = {0};
+            FILE* f = fopen("/data/system/packages.list", "r");
+            if (f) {
+                char line[512];
+                char uid_str[32];
+                snprintf(uid_str, sizeof(uid_str), " %d ", uid);
+                while (fgets(line, sizeof(line), f)) {
+                    if (strstr(line, uid_str)) {
+                        char* space = strchr(line, ' ');
+                        if (space) {
+                            size_t len = space - line;
+                            if (len < sizeof(pkg)) {
+                                memcpy(pkg, line, len);
+                                pkg[len] = '\0';
+                            }
+                        }
+                        break;
+                    }
+                }
+                fclose(f);
+            }
+
+            int killed = 0;
+            DIR* proc_dir = opendir("/proc");
+            if (proc_dir) {
+                struct dirent* ent;
+                while ((ent = readdir(proc_dir)) != nullptr) {
+                    if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
+                    pid_t pid = (pid_t)atoi(ent->d_name);
+                    
+                    char status_path[64];
+                    snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
+                    FILE* sf = fopen(status_path, "r");
+                    if (!sf) continue;
+                    
+                    uid_t proc_uid = (uid_t)-1;
+                    char line[256];
+                    while (fgets(line, sizeof(line), sf)) {
+                        if (strncmp(line, "Uid:", 4) == 0) {
+                            proc_uid = (uid_t)strtoul(line + 4, nullptr, 10);
+                            break;
+                        }
+                    }
+                    fclose(sf);
+                    
+                    if (proc_uid == (uid_t)uid) {
+                        if (kill(pid, SIGKILL) == 0) {
+                            killed++;
+                        }
+                    }
+                }
+                closedir(proc_dir);
+            }
+
+            char resp[256];
+            snprintf(resp, sizeof(resp), "{\"success\":true,\"uid\":%d,\"package\":\"%s\",\"killed\":%d}",
+                     uid, pkg, killed);
+            kernel_module::webui::send_text(conn, 200, resp);
+            return true;
+        }
+
+return false;
     }
 
     ServerExitAction onBeforeServerExit() override {
