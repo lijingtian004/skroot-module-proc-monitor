@@ -404,7 +404,7 @@ static void init_api_key(const char* module_dir) {
 
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
     // 不打印敏感信息（root_key 长度和模块路径）
-    printf("[module_proc_monitor] initializing...\n");
+    LOGI("[module_proc_monitor] initializing...\n");
 
     g_module_dir = module_private_dir;
 
@@ -415,7 +415,7 @@ int skroot_module_main(const char* root_key, const char* module_private_dir) {
     // 启动后台守护线程
     proc_scanner_start();
 
-    printf("[module_proc_monitor] proc scanner daemon started\n");
+    LOGI("[module_proc_monitor] proc scanner daemon started\n");
 
     // skroot_module_main 返回后模块进程结束，
     // 但 WebUI handler 进程会继续运行
@@ -427,7 +427,7 @@ int skroot_module_main(const char* root_key, const char* module_private_dir) {
 class ProcMonitorWebHandler : public kernel_module::WebUIHttpHandler {
 public:
     void onPrepareCreate(const char* root_key, const char* module_private_dir, uint32_t port) override {
-        printf("[proc_monitor] WebUI starting on port %d\n", port);
+        LOGI("[proc_monitor] WebUI starting on port %d\n", port);
 
         // 保存模块目录，供悬浮窗启动使用
         g_module_dir = module_private_dir;
