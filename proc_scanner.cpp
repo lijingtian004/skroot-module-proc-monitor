@@ -617,11 +617,13 @@ static void get_fg_app_info(char* pkg_out, int pkg_sz, double* cpu_pct, int64_t*
 
     // 遍历 /proc 找该 UID 下的进程
     DIR* dir = opendir("/proc");
-    if (!d
+    if (!dir) return;
+    struct dirent* ent;
+    w
 
-... [OUTPUT TRUNCATED - 3922 chars omitted out of 53922 total] ...
+... [OUTPUT TRUNCATED - 3880 chars omitted out of 53880 total] ...
 
-;
+);
     if (!dir) return (uid_t)-1;
 
     struct dirent* ent;
