@@ -341,6 +341,54 @@ static void stop_overlay() {
 
 // ============ 模块入口 ============
 
+// API Key 认证（存储在文件中）
+static std::string g_api_key;
+
+// 生成随机 API Key
+static std::string generate_api_key() {
+    const char chars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    std::string key;
+    srand(time(nullptr) ^ getpid());
+    for (int i = 0; i < 32; i++) {
+        key += chars[rand() % (sizeof(chars) - 1)];
+    }
+    return key;
+}
+
+// 加载或生成 API Key
+static void init_api_key(const char* module_dir) {
+    char path[512];
+    snprintf(path, sizeof(path), "%s/api_key", module_dir);
+    
+    FILE* f = fopen(path, "r");
+    if (f) {
+        char buf[64] = {0};
+        if (fgets(buf, sizeof(buf), f)) {
+            // 去掉换行符
+            char* nl = strchr(buf, '\n');
+            if (nl) *nl = 0;
+            g_api_key = buf;
+        }
+        fclose(f);
+    }
+    
+    // 如果没有读到，生成新的
+    if (g_api_key.empty()) {
+        g_api_key = generate_api_key();
+        // 保存到文件（权限 0600）
+        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (fd >= 0) {
+            write(fd, g_api_key.c_str(), g_api_key.size());
+            close(fd);
+        }
+    }
+    
+    // 打印 API Key（仅在模块启动时）
+    printf("[module_proc_monitor] ========================================\n");
+    printf("[module_proc_monitor] API Key: %s\n", g_api_key.c_str());
+    printf("[module_proc_monitor] ========================================\n");
+}
+
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
     // 不打印敏感信息（root_key 长度和模块路径）
     printf("[module_proc_monitor] initializing...\n");
@@ -371,9 +419,17 @@ public:
         // 保存模块目录，供悬浮窗启动使用
         g_module_dir = module_private_dir;
 
-        // 写端口到文件，供悬浮窗应用读取
-        FILE* f = fopen("/data/local/tmp/skroot_webui_port", "w");
-        if (f) { fprintf(f, "%u\n", port); fclose(f); }
+        // 初始化 API Key
+        init_api_key(module_private_dir);
+
+        // 写端口到文件，供悬浮窗应用读取（权限 0600）
+        int fd = open("/data/local/tmp/skroot_webui_port", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (fd >= 0) {
+            char buf[16];
+            int len = snprintf(buf, sizeof(buf), "%u\n", port);
+            write(fd, buf, len);
+            close(fd);
+        }
 
         // 在 WebUI 进程中也需要启动扫描器
         proc_scanner_init(module_private_dir);
@@ -383,8 +439,52 @@ public:
         power_tracker_start();
     }
 
+    // 验证 API Key
+    bool verifyApiKey(struct mg_connection* conn) {
+        // 从请求头获取 API Key
+        const char* api_key_header = mg_get_header(conn, "X-API-Key");
+        if (!api_key_header) {
+            // 也检查查询参数
+            const struct mg_request_info* ri = mg_get_request_info(conn);
+            if (ri && ri->query_string) {
+                const char* key_param = strstr(ri->query_string, "key=");
+                if (key_param) {
+                    api_key_header = key_param + 4;
+                }
+            }
+        }
+        
+        // 验证
+        if (!api_key_header || g_api_key != api_key_header) {
+            kernel_module::webui::send_text(conn, 401, "{\"error\":\"unauthorized\",\"message\":\"Invalid or missing API key\"}");
+            return false;
+        }
+        return true;
+    }
+
     bool handleGet(CivetServer* server, struct mg_connection* conn,
                    const std::string& path, const std::string& query) override {
+        // API Key 验证（排除获取 key 的端点）
+        if (path.substr(0, 5) == "/api/" && path != "/api/key") {
+            if (!verifyApiKey(conn)) return true;
+        }
+        
+        // 获取 API Key（仅限无 key 的首次访问）
+        if (path == "/api/key") {
+            // 检查是否已有 key（防止泄露）
+            const char* api_key_header = mg_get_header(conn, "X-API-Key");
+            if (api_key_header && g_api_key == api_key_header) {
+                // 已认证，返回当前 key
+                char resp[128];
+                snprintf(resp, sizeof(resp), "{\"key\":\"%s\"}", g_api_key.c_str());
+                kernel_module::webui::send_text(conn, 200, resp);
+            } else {
+                // 未认证，拒绝访问（key 应从日志获取）
+                kernel_module::webui::send_text(conn, 403, "{\"error\":\"forbidden\",\"message\":\"Check module log for API key\"}");
+            }
+            return true;
+        }
+        
         // API 端点同时支持 GET（兼容性）
         if (path == "/api/charging") {
             ChargingInfo ch = charging_get_info();
@@ -507,6 +607,10 @@ public:
 
     bool handlePost(CivetServer* server, struct mg_connection* conn,
                     const std::string& path, const std::string& body) override {
+        // API Key 验证
+        if (path.substr(0, 5) == "/api/") {
+            if (!verifyApiKey(conn)) return true;
+        }
 
         if (path == "/api/events") {
             // 获取最近事件：body = "100" 表示最近 100 条

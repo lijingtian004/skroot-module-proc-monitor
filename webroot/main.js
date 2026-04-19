@@ -41,14 +41,37 @@ function classifyProc(p) {
 }
 
 // ============ API ============
+// API Key 管理
+let apiKey = localStorage.getItem('skroot_api_key') || '';
+
+// 设置 API Key
+function setApiKey(key) {
+  apiKey = key;
+  localStorage.setItem('skroot_api_key', key);
+}
+
+// 获取请求头（包含 API Key）
+function getHeaders() {
+  const headers = { 'Content-Type': 'text/plain' };
+  if (apiKey) headers['X-API-Key'] = apiKey;
+  return headers;
+}
+
 async function api(path, body = '') {
   try {
     // 先尝试 POST
-    let resp = await fetch(new URL(path, window.location.href), { method: 'POST', body });
+    let resp = await fetch(new URL(path, window.location.href), { 
+      method: 'POST', 
+      body,
+      headers: getHeaders()
+    });
     if (resp.ok) return await resp.text();
     // POST 失败则回退 GET
     const url = body ? `${path}?limit=${body}` : path;
-    resp = await fetch(new URL(url, window.location.href), { method: 'GET' });
+    resp = await fetch(new URL(url, window.location.href), { 
+      method: 'GET',
+      headers: getHeaders()
+    });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.text();
   } catch (e) { console.error(`API [${path}]:`, e); return null; }
@@ -57,7 +80,10 @@ async function api(path, body = '') {
 // 纯 GET 请求
 async function apiGet(path) {
   try {
-    const resp = await fetch(new URL(path, window.location.href), { method: 'GET' });
+    const resp = await fetch(new URL(path, window.location.href), { 
+      method: 'GET',
+      headers: getHeaders()
+    });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.text();
   } catch (e) { console.error(`API GET [${path}]:`, e); return null; }
@@ -66,7 +92,11 @@ async function apiGet(path) {
 // 纯 POST 请求
 async function apiPost(path, body = '') {
   try {
-    const resp = await fetch(new URL(path, window.location.href), { method: 'POST', body });
+    const resp = await fetch(new URL(path, window.location.href), { 
+      method: 'POST', 
+      body,
+      headers: getHeaders()
+    });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.text();
   } catch (e) { console.error(`API POST [${path}]:`, e); return null; }
@@ -712,5 +742,40 @@ function fmtTime(ts) { const d = new Date(ts); const p = n => String(n).padStart
 function fmtTimestamp(ts) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds())}`; }
 function uidName(uid) { if (uid === 0) return 'root'; if (uid >= 10000 && uid < 20000) return `u${Math.floor(uid/10000)-1}`; if (uid === 2000) return 'shell'; return `uid:${uid}`; }
 
+// ============ API Key 初始化 ============
+async function initApiKey() {
+  // 如果没有存储的 API Key，提示用户输入
+  if (!apiKey) {
+    // 尝试自动获取（兼容旧版本，无 key 端点）
+    try {
+      const resp = await fetch(new URL('/api/key', window.location.href));
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.key) {
+          setApiKey(data.key);
+          console.log('API Key auto-initialized');
+          return;
+        }
+      }
+    } catch (e) {}
+    
+    // 提示用户输入
+    const key = prompt('请输入 API Key（首次使用请查看 logcat 模块日志）');
+    if (key) {
+      setApiKey(key);
+      // 验证 key 是否有效
+      const testResp = await apiGet('/api/stats');
+      if (!testResp) {
+        alert('API Key 无效，请重新输入');
+        localStorage.removeItem('skroot_api_key');
+        apiKey = '';
+      }
+    }
+  }
+}
+
 // ============ Init ============
-document.addEventListener('DOMContentLoaded', startPolling);
+document.addEventListener('DOMContentLoaded', async () => {
+  await initApiKey();
+  startPolling();
+});
