@@ -406,6 +406,9 @@ int skroot_module_main(const char* root_key, const char* module_private_dir) {
     // 创建存储目录
     mkdir("/storage/emulated/0/SKMonitor", 0755);
 
+    // 创建存储目录
+    mkdir("/storage/emulated/0/SKMonitor", 0755);
+
     // 不打印敏感信息（root_key 长度和模块路径）
     LOGI("[module_proc_monitor] initializing...\n");
 
