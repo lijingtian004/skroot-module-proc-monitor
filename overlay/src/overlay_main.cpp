@@ -618,6 +618,9 @@ static void render_frame() {
 
 // ====== MAIN ======
 int main() {
+    // 创建存储目录
+    mkdir("/storage/emulated/0/SKMonitor", 0755);
+
     g_logfp = fopen("/storage/emulated/0/SKMonitor/overlay.log", "w");
     if(g_logfp) dup2(fileno(g_logfp), STDERR_FILENO);
     LOGI("=== custom UI pid=%d ===", getpid());
