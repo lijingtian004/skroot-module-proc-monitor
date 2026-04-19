@@ -295,6 +295,32 @@ void proc_scanner_scan_once() {
     scan_proc_dir();
 }
 
+// 读取单个进程的 CPU 使用率
+static double read_proc_cpu_pct(pid_t pid) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+    FILE* f = fopen(path, "r");
+    if (!f) return 0;
+    
+    char line[512];
+    if (!fgets(line, sizeof(line), f)) { fclose(f); return 0; }
+    fclose(f);
+    
+    // 解析 /proc/pid/stat 获取 utime 和 stime
+    unsigned long utime = 0, stime = 0;
+    char* p = strrchr(line, ')');  // 找到 comm 的结束
+    if (p) {
+        int count = sscanf(p + 2, "%*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &utime, &stime);
+        if (count < 2) return 0;
+    }
+    
+    long clk = sysconf(_SC_CLK_TCK);
+    double cpu_sec = (double)(utime + stime) / clk;
+    
+    // 返回累计 CPU 时间（由前端计算差值）
+    return cpu_sec;
+}
+
 std::vector<ProcInfo> proc_scanner_get_all_procs() {
     std::vector<ProcInfo> result;
     DIR* dir = opendir("/proc");
@@ -313,6 +339,7 @@ std::vector<ProcInfo> proc_scanner_get_all_procs() {
         if (!read_proc_comm(info.pid, info.comm, sizeof(info.comm))) continue;
         read_proc_cmdline(info.pid, info.cmdline, sizeof(info.cmdline));
         read_proc_status(info.pid, &info.ppid, &info.uid);
+        info.cpu_usage_pct = read_proc_cpu_pct(info.pid);
         
         result.push_back(info);
     }

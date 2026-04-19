@@ -131,6 +131,7 @@ struct ProcInfo {
     uid_t   uid;
     char    comm[64];
     char    cmdline[256];
+    double  cpu_usage_pct;  // CPU 占用率 %
 };
 
 // 进程扫描器接口

@@ -83,6 +83,7 @@ static std::string build_procs_json(const std::vector<ProcInfo>& procs) {
         cJSON_AddNumberToObject(obj, "uid",  (double)p.uid);
         cJSON_AddStringToObject(obj, "comm", p.comm);
         cJSON_AddStringToObject(obj, "cmdline", p.cmdline);
+        cJSON_AddNumberToObject(obj, "cpu_sec", p.cpu_usage_pct);
         cJSON_AddItemToArray(arr, obj);
     }
     char* raw = cJSON_PrintUnformatted(arr);
@@ -839,23 +840,87 @@ public:
         if (path == "/api/kill-process") {
             // body 格式: "uid=10123" 或 "{\"uid\":10123}"
             int uid = -1;
-            // 尝试解析 uid（只取数字部分）
+            // 尝试解析 uid
             size_t pos = body.find("uid=");
             if (pos != std::string::npos) {
-                const char* start = body.c_str() + pos + 4;
-                uid = atoi(start);  // atoi 只解析开头的数字
+                uid = atoi(body.c_str() + pos + 4);
             } else {
                 pos = body.find("\"uid\":");
                 if (pos != std::string::npos) {
-                    const char* start = body.c_str() + pos + 6;
-                    uid = atoi(start);
+                    uid = atoi(body.c_str() + pos + 6);
                 }
             }
 
-            // 验证 UID 范围 (Android UID: 0-99999)
+            // 验证 UID 范围
             if (uid < 0 || uid > 99999) {
                 kernel_module::webui::send_text(conn, 400, "{\"error\":\"invalid uid range\"}");
                 return true;
+            }
+
+            // 获取包名
+            char pkg[256] = {0};
+            FILE* f = fopen("/data/system/packages.list", "r");
+            if (f) {
+                char line[512];
+                char uid_str[32];
+                snprintf(uid_str, sizeof(uid_str), " %d ", uid);
+                while (fgets(line, sizeof(line), f)) {
+                    if (strstr(line, uid_str)) {
+                        char* space = strchr(line, ' ');
+                        if (space) {
+                            size_t len = space - line;
+                            if (len < sizeof(pkg)) {
+                                memcpy(pkg, line, len);
+                                pkg[len] = '\0';
+                            }
+                        }
+                        break;
+                    }
+                }
+                fclose(f);
+            }
+
+            // 直接杀掉该 UID 的所有进程（使用 kill 系统调用）
+            int killed = 0;
+            DIR* dir = opendir("/proc");
+            if (dir) {
+                struct dirent* ent;
+                while ((ent = readdir(dir)) != nullptr) {
+                    if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
+                    pid_t pid = (pid_t)atoi(ent->d_name);
+                    
+                    // 读取进程 UID
+                    char path[64];
+                    snprintf(path, sizeof(path), "/proc/%d/status", pid);
+                    FILE* sf = fopen(path, "r");
+                    if (!sf) continue;
+                    
+                    uid_t proc_uid = (uid_t)-1;
+                    char line[256];
+                    while (fgets(line, sizeof(line), sf)) {
+                        if (strncmp(line, "Uid:", 4) == 0) {
+                            proc_uid = (uid_t)strtoul(line + 4, nullptr, 10);
+                            break;
+                        }
+                    }
+                    fclose(sf);
+                    
+                    // 如果是目标 UID 的进程，杀掉它
+                    if (proc_uid == (uid_t)uid) {
+                        if (kill(pid, SIGKILL) == 0) {
+                            killed++;
+                        }
+                    }
+                }
+                closedir(dir);
+            }
+
+            char resp[256];
+            snprintf(resp, sizeof(resp), "{\"success\":true,\"uid\":%d,\"package\":\"%s\",\"killed\":%d}",
+                     uid, pkg, killed);
+            kernel_module::webui::send_text(conn, 200, resp);
+            return true;
+        }
             }
 
             // 安全获取包名：直接读取文件，不使用 shell

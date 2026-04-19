@@ -438,11 +438,13 @@ function renderProcItem(p) {
   div.className = 'event-item';
   div.onclick = () => showProcDetail(p);
   const cmd = p.cmdline ? esc(p.cmdline.substring(0, 60)) : '';
+  const cpuStr = p.cpu_pct !== undefined ? `${p.cpu_pct.toFixed(1)}%` : '';
   div.innerHTML = `
     <div class="event-body">
       <div class="event-main"><span class="comm">${esc(p.comm)}</span><span class="pid">PID ${p.pid}</span></div>
       <div class="event-sub">${cmd || `PPID ${p.ppid} · ${uidName(p.uid)}`}</div>
     </div>
+    ${cpuStr ? `<div class="event-right"><span class="cpu-badge">${cpuStr}</span></div>` : ''}
   `;
   return div;
 }
@@ -451,7 +453,9 @@ function renderProcsList(procs) {
   const list = document.getElementById('procList');
   list.innerHTML = '';
   if (procs.length === 0) { list.innerHTML = '<div class="loading">无进程数据</div>'; return; }
-  for (const p of procs.slice(0, 500)) list.appendChild(renderProcItem(p));
+  // 按 CPU 占用排序
+  const sorted = [...procs].sort((a, b) => (b.cpu_pct || 0) - (a.cpu_pct || 0));
+  for (const p of sorted.slice(0, 500)) list.appendChild(renderProcItem(p));
 }
 
 // ============ Filter ============
@@ -678,16 +682,32 @@ async function fetchOverlayConfig() {
 // ============ 双电芯配置 ============
 let lastDualBattery = undefined;
 
+let lastApiKeyId = undefined;
+
 async function fetchConfig() {
   const raw = await apiGet('/api/config');
   if (raw) try {
     const d = JSON.parse(raw);
+    // 双电芯开关
     const toggle = document.getElementById('dualBatteryToggle');
     if (toggle && d.dual_battery !== lastDualBattery) {
       lastDualBattery = d.dual_battery;
       toggle.checked = d.dual_battery === true;
     }
+    // API Key 开关
+    const apiKeyToggle = document.getElementById('apiKeyToggle');
+    if (apiKeyToggle && d.api_key_enabled !== lastApiKeyId) {
+      lastApiKeyId = d.api_key_enabled;
+      apiKeyToggle.checked = d.api_key_enabled === true;
+    }
   } catch(e) {}
+}
+
+async function toggleApiKey() {
+  const toggle = document.getElementById('apiKeyToggle');
+  const val = toggle.checked ? '1' : '0';
+  await apiPost('/api/config', 'api_key_enabled=' + val);
+  lastApiKeyId = toggle.checked;
 }
 
 async function toggleDualBattery() {

@@ -733,3 +733,19 @@ body {
   color: var(--text-1);
   font-size: 12px;
 }
+
+/* CPU 占用量显示 */
+.event-right {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 12px;
+}
+.cpu-badge {
+  background: rgba(74, 144, 226, 0.2);
+  color: #4a90e2;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
