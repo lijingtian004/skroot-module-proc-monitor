@@ -57,7 +57,7 @@ jobs:
             -Wl,-soname,libmodule_proc_monitor.so \
             $OUT/module_proc_monitor.o $OUT/proc_scanner.o $OUT/cJSON.o \
             _kit_stub/lib/libkernel_module_kit_static.a \
-            -static-libstdc++ -lc -lm \
+            -static-libstdc++ -lc -lm -llog \
             -o $OUT/libmodule_proc_monitor.so
 
           $CLANG/llvm-objcopy --strip-debug $OUT/libmodule_proc_monitor.so
