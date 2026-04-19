@@ -542,11 +542,11 @@ static void render_frame() {
     // 根据样式绘制背景
     uint32_t bg_color;
     if (g_overlay_style == 1) {
-        // 透明样式：带轻微背景色的透明
-        bg_color = make_rgba(20, 20, 25, 80);  // 轻微背景，高透明度
+        // 透明样式：透明度更高（alpha更低=更透明）
+        bg_color = make_rgba(20, 20, 25, 40);  // alpha=40，更透明
     } else {
-        // 默认样式：黑色半透明
-        bg_color = make_rgba(0, 0, 0, 200);
+        // 默认样式：黑色，透明度更低（alpha更高=更不透明）
+        bg_color = make_rgba(0, 0, 0, 230);    // alpha=230，几乎不透明
     }
     fill_rounded_rect(px, stride, w, h, wx, wy, ww, wh, ww*0.02f, bg_color);
 
