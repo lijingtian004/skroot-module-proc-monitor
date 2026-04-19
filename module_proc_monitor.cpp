@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <dirent.h>
 
 #include "kernel_module_kit_umbrella.h"
 #include "proc_scanner.h"
