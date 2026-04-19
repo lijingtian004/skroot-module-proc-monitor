@@ -20,6 +20,18 @@
 #include <unordered_set>
 #include <algorithm>
 
+#ifdef ANDROID
+#include <android/log.h>
+#define LOG_TAG "ProcMonitor"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#else
+#define LOGI(...) printf(__VA_ARGS__)
+#define LOGW(...) printf(__VA_ARGS__)
+#define LOGE(...) printf(__VA_ARGS__)
+#endif
+
 #include "proc_scanner.h"
 
 // 全局事件缓冲区
@@ -211,7 +223,7 @@ static void scan_proc_dir() {
 // ============ 后台扫描线程 ============
 
 static void* scan_thread_func(void* arg) {
-    printf("[proc_scanner] daemon thread started, interval=800ms\n");
+    LOGI("[proc_scanner] daemon thread started, interval=800ms\n");
 
     // 首次扫描：填充已知进程表，不触发事件
     {
@@ -230,7 +242,7 @@ static void* scan_thread_func(void* arg) {
             }
             closedir(dir);
         }
-        printf("[proc_scanner] initial scan: %zu processes\n", g_known_procs.size());
+        LOGI("[proc_scanner] initial scan: %zu processes\n", g_known_procs.size());
     }
 
     while (g_running.load()) {
@@ -239,7 +251,7 @@ static void* scan_thread_func(void* arg) {
         usleep(800 * 1000);
     }
 
-    printf("[proc_scanner] daemon thread exiting\n");
+    LOGI("[proc_scanner] daemon thread exiting\n");
     return nullptr;
 }
 
@@ -993,7 +1005,7 @@ static void auto_extract_labels(const char* module_dir) {
         if (extract_label_from_apk(apk_path, label, sizeof(label)) && label[0]) {
             existing[pkg] = label;
             count++;
-            if (count <= 5) printf("[proc_monitor] %s → %s\n", pkg, label);
+            if (count <= 5) LOGI("[proc_monitor] %s → %s\n", pkg, label);
         }
     }
     pclose(pm);
@@ -1006,7 +1018,7 @@ static void auto_extract_labels(const char* module_dir) {
                 fprintf(f, "%s=%s\n", pkg.c_str(), label.c_str());
             }
             fclose(f);
-            printf("[proc_monitor] 共提取 %d 个 App 名称 → %s\n", count, labels_path);
+            LOGI("[proc_monitor] 共提取 %d 个 App 名称 → %s\n", count, labels_path);
         }
     }
 
@@ -1119,7 +1131,7 @@ static bool g_dual_battery = false;  // 双电芯模式
 // 设置双电芯模式（供API调用）
 void power_tracker_set_dual_battery(bool enabled) {
     g_dual_battery = enabled;
-    printf("[proc_scanner] dual_battery set to: %d\n", g_dual_battery);
+    LOGI("[proc_scanner] dual_battery set to: %d\n", g_dual_battery);
 }
 
 // 从 sysfs 读取实际电池功率（mW），扫描所有电池设备
@@ -1163,7 +1175,7 @@ static double read_battery_power_mw() {
         if (power > 0) {
             total_power += power;
             battery_count++;
-            printf("[proc_scanner] battery '%s' power: %.1f mW\n", ent->d_name, power);
+            LOGI("[proc_scanner] battery '%s' power: %.1f mW\n", ent->d_name, power);
         }
         
         // 非双电芯模式只读第一个电池
@@ -1171,7 +1183,7 @@ static double read_battery_power_mw() {
     }
     closedir(dir);
     
-    printf("[proc_scanner] total battery power: %.1f mW (from %d battery)\n", total_power, battery_count);
+    LOGI("[proc_scanner] total battery power: %.1f mW (from %d battery)\n", total_power, battery_count);
     return total_power;
 }
 
@@ -1354,7 +1366,7 @@ static void load_config(const char* module_dir) {
         }
     }
     fclose(f);
-    printf("[proc_scanner] config loaded: dual_battery=%d\n", g_dual_battery);
+    LOGI("[proc_scanner] config loaded: dual_battery=%d\n", g_dual_battery);
 }
 
 // 带 module_dir 的初始化
@@ -1387,13 +1399,13 @@ static void* power_tracker_thread_func(void*) {
 void power_tracker_start() {
     if (g_power_running.exchange(true)) return; // 已在运行
     pthread_create(&g_power_thread, nullptr, power_tracker_thread_func, nullptr);
-    printf("[proc_monitor] power tracker background thread started (10s interval)\n");
+    LOGI("[proc_monitor] power tracker background thread started (10s interval)\n");
 }
 
 void power_tracker_stop() {
     if (!g_power_running.exchange(false)) return;
     pthread_join(g_power_thread, nullptr);
-    printf("[proc_monitor] power tracker background thread stopped\n");
+    LOGI("[proc_monitor] power tracker background thread stopped\n");
 }
 
 void power_tracker_sample() {
