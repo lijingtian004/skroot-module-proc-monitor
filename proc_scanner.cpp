@@ -1473,6 +1473,21 @@ void power_tracker_sample() {
     g_last_sample_time = now;
 }
 
+std::vector<AppPowerInfo> power_tracker_get_top(int n) {
+    std::vector<AppPowerInfo> result;
+    {
+        std::lock_guard<std::mutex> lock(g_power_cache_mutex);
+        for (auto& [uid, info] : g_power_cache) {
+            result.push_back(info);
+        }
+    }
+    std::sort(result.begin(), result.end(),
+        [](const AppPowerInfo& a, const AppPowerInfo& b) {
+            return a.power_mw > b.power_mw;
+        });
+    if ((int)result.size() > n) result.resize(n);
+    return result;
+}
 // OverlayData 全局缓存
 static OverlayData g_overlay_data = {};
 static std::mutex g_overlay_mutex;
@@ -1511,21 +1526,4 @@ OverlayData overlay_get_data() {
     }
     
     return g_overlay_data;
-}
-
-
-std::vector<AppPowerInfo> power_tracker_get_top(int n) {
-    std::vector<AppPowerInfo> result;
-    {
-        std::lock_guard<std::mutex> lock(g_power_cache_mutex);
-        for (auto& [uid, info] : g_power_cache) {
-            result.push_back(info);
-        }
-    }
-    std::sort(result.begin(), result.end(),
-        [](const AppPowerInfo& a, const AppPowerInfo& b) {
-            return a.power_mw > b.power_mw;
-        });
-    if ((int)result.size() > n) result.resize(n);
-    return result;
 }
