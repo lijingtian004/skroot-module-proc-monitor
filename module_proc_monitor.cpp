@@ -207,14 +207,50 @@ static std::string g_module_dir;
 
 static pid_t g_overlay_pid = -1;
 
+// 通过进程名查找overlay进程PID
+static pid_t find_overlay_pid() {
+    DIR* dir = opendir("/proc");
+    if (!dir) return -1;
+    
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != nullptr) {
+        if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
+        pid_t pid = (pid_t)atoi(ent->d_name);
+        
+        char path[256];
+        snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+        FILE* f = fopen(path, "r");
+        if (!f) continue;
+        
+        char cmd[256] = {0};
+        fread(cmd, 1, sizeof(cmd) - 1, f);
+        fclose(f);
+        
+        // 检查是否是skroot_overlay进程
+        if (strstr(cmd, "skroot_overlay") != nullptr) {
+            closedir(dir);
+            return pid;
+        }
+    }
+    closedir(dir);
+    return -1;
+}
+
 static bool is_overlay_running() {
-    if (g_overlay_pid <= 0) return false;
-    // 检查进程是否还活着
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/status", g_overlay_pid);
-    FILE* f = fopen(path, "r");
-    if (f) { fclose(f); return true; }
-    g_overlay_pid = -1;
+    // 先检查已知PID
+    if (g_overlay_pid > 0) {
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/%d/status", g_overlay_pid);
+        FILE* f = fopen(path, "r");
+        if (f) { fclose(f); return true; }
+        g_overlay_pid = -1;
+    }
+    // PID无效时，尝试通过进程名查找
+    pid_t found = find_overlay_pid();
+    if (found > 0) {
+        g_overlay_pid = found;
+        return true;
+    }
     return false;
 }
 
