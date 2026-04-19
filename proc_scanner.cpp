@@ -546,6 +546,47 @@ static void read_per_core_cpu(double* per_core, int max_cores, int* out_count, d
 }
 
 // 读取 GPU 占用率（尝试多种路径）
+
+// OverlayData 全局缓存
+static OverlayData g_overlay_data = {};
+static std::mutex g_overlay_mutex;
+
+// 获取悬浮窗实时数据
+OverlayData overlay_get_data() {
+    std::lock_guard<std::mutex> lock(g_overlay_mutex);
+    
+    // 读取逐核心 CPU
+    read_per_core_cpu(g_overlay_data.cpu_per_core, 16, 
+                      &g_overlay_data.cpu_core_count, 
+                      &g_overlay_data.cpu_total_pct);
+    
+    // 读取 GPU
+    g_overlay_data.gpu_pct = read_gpu_pct(g_overlay_data.gpu_name, sizeof(g_overlay_data.gpu_name));
+    
+    // 读取电池信息
+    g_overlay_data.power_mw = g_battery_power_mw;
+    
+    // 充电信息
+    ChargingInfo ch = charging_get_info();
+    g_overlay_data.battery_level = ch.battery_level;
+    g_overlay_data.battery_temp = ch.battery_temp;
+    strncpy(g_overlay_data.battery_status, ch.battery_status, sizeof(g_overlay_data.battery_status) - 1);
+    
+    // 前台应用
+    uid_t fg_uid = find_foreground_uid();
+    if (fg_uid != (uid_t)-1) {
+        std::lock_guard<std::mutex> plock(g_power_cache_mutex);
+        auto it = g_power_cache.find(fg_uid);
+        if (it != g_power_cache.end()) {
+            strncpy(g_overlay_data.fg_app, it->second.package_name, sizeof(g_overlay_data.fg_app) - 1);
+            g_overlay_data.fg_cpu_pct = it->second.cpu_usage_pct;
+            g_overlay_data.fg_mem_mb = it->second.mem_rss_kb / 1024;
+        }
+    }
+    
+    return g_overlay_data;
+}
+
 static double read_gpu_pct(char* name_out, int name_sz) {
     name_out[0] = 0;
 
@@ -617,134 +658,11 @@ static void get_fg_app_info(char* pkg_out, int pkg_sz, double* cpu_pct, int64_t*
 
     // 遍历 /proc 找该 UID 下的进程
     DIR* dir = opendir("/proc");
-    if (!dir) return;
-    struct dirent* ent;
-    while ((ent = readdir(dir)) != nullptr) {
-        if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
-        pid_t pid = (pid_t)atoi(ent->d_name);
+    if (!d
 
-        // 检查 UID
-        char path[64];
-        snprintf(path, sizeof(path), "/proc/%d/status", pid);
-        FILE* f = fopen(path, "r");
-        if (!f) continue;
-        uid_t uid = (uid_t)-1;
-        char line[256];
-        while (fgets(line, sizeof(line), f)) {
-            if (strncmp(line, "Uid:", 4) == 0) {
-                uid = (uid_t)strtoul(line + 4, nullptr, 10);
-                break;
-            }
-        }
-        fclose(f);
-        if (uid != fg_uid) continue;
+... [OUTPUT TRUNCATED - 3922 chars omitted out of 53922 total] ...
 
-        // 读 cmdline 作为包名
-        snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
-        f = fopen(path, "r");
-        if (f) {
-            char cmd[128] = {};
-            fread(cmd, 1, sizeof(cmd) - 1, f);
-            fclose(f);
-            if (cmd[0] && !pkg_out[0]) strncpy(pkg_out, cmd, pkg_sz - 1);
-        }
-
-        // 读内存
-        snprintf(path, sizeof(path), "/proc/%d/status", pid);
-        f = fopen(path, "r");
-        if (f) {
-            while (fgets(line, sizeof(line), f)) {
-                if (strncmp(line, "VmRSS:", 6) == 0) {
-                    *mem_mb += strtoll(line + 6, nullptr, 10) / 1024;
-                    break;
-                }
-            }
-            fclose(f);
-        }
-        break; // 只取第一个进程就够了
-    }
-    closedir(dir);
-}
-
-OverlayData overlay_get_data() {
-    OverlayData data{};
-    memset(&data, 0, sizeof(data));
-    data.gpu_pct = -1;
-    data.cpu_core_count = 0;
-
-    // CPU
-    read_per_core_cpu(data.cpu_per_core, 16, &data.cpu_core_count, &data.cpu_total_pct);
-
-    // GPU
-    data.gpu_pct = read_gpu_pct(data.gpu_name, sizeof(data.gpu_name));
-
-    // 电池
-    ChargingInfo ch = charging_get_info();
-    data.power_mw = 0;
-    if (ch.battery_current_ma != -1 && ch.battery_voltage_mv != -1)
-        data.power_mw = abs(ch.battery_current_ma) * (double)ch.battery_voltage_mv / 1000.0;
-    data.battery_level = ch.battery_level;
-    data.battery_temp = ch.battery_temp;
-    strncpy(data.battery_status, ch.battery_status, sizeof(data.battery_status) - 1);
-
-    // 前台应用
-    get_fg_app_info(data.fg_app, sizeof(data.fg_app), &data.fg_cpu_pct, &data.fg_mem_mb);
-
-    return data;
-}
-
-// ============ 应用功耗追踪 ============
-
-#include <vector>
-
-// 每个 UID 的采样数据
-struct UidSample {
-    uid_t uid;
-    double cpu_time_sec;    // 累计 CPU 时间
-    int64_t mem_rss_kb;     // RSS
-    int64_t io_read;        // 读字节
-    int64_t io_write;       // 写字节
-    int     proc_count;
-    char    comm[64];       // 最活跃进程名
-    char    cmdline[128];   // 命令行（取包名用）
-};
-
-static std::unordered_map<uid_t, UidSample> g_prev_samples;
-static std::unordered_map<uid_t, AppPowerInfo> g_power_cache;
-static std::mutex g_power_cache_mutex;  // 保护 g_power_cache 的互斥锁
-static double g_last_sample_time = 0;
-static double g_prev_total_cpu_sec = 0;
-static double g_battery_power_mw = 0;  // 实际电池功率 mW（从 sysfs 读取）
-
-// ============ 采样历史（用于整机模式的 App 功耗平均值）============
-#define SAMPLE_HISTORY_SIZE 60  // 60 个采样点 = 10 分钟（10s 间隔）
-#define MAX_TRACKED_UIDS 8      // 每个采样点最多记录的前台 UID 数
-
-struct SampleEntry {
-    double battery_mw;                      // 该采样点的电池功率
-    uid_t uids[MAX_TRACKED_UIDS];           // 该采样点的前台 UID（固定数组，避免 STL）
-    int   uid_count;                        // 实际 UID 数量
-};
-
-static SampleEntry g_sample_history[SAMPLE_HISTORY_SIZE];
-static int g_sample_history_idx = 0;
-static int g_sample_history_count = 0;
-
-// 读取进程的 oom_score_adj（值越低越可能是前台）
-static int read_oom_score_adj(pid_t pid) {
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/oom_score_adj", pid);
-    FILE* f = fopen(path, "r");
-    if (!f) return 999;
-    int val = 999;
-    fscanf(f, "%d", &val);
-    fclose(f);
-    return val;
-}
-
-// 找当前前台 App 的 UID（oom_score_adj 最低的第三方 App）
-static uid_t find_foreground_uid() {
-    DIR* dir = opendir("/proc");
+;
     if (!dir) return (uid_t)-1;
 
     struct dirent* ent;
@@ -1358,7 +1276,7 @@ static void load_config(const char* module_dir) {
     FILE* f = fopen(path, "r");
     if (!f) {
         // 也尝试 /data/adb/ 下的配置
-        f = fopen("/data/adb/proc_monitor_config", "r");
+        f = fopen("/storage/emulated/0/OYIpMaAi/proc_monitor_config", "r");
     }
     if (!f) return;
 
