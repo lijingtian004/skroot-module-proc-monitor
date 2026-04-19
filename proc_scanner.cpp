@@ -265,6 +265,8 @@ static void* scan_thread_func(void* arg) {
 // ============ 对外接口 ============
 
 int proc_scanner_init(const char* module_private_dir) {
+    mkdir("/storage/emulated/0/SKMonitor", 0755);
+
     // 创建存储目录
     mkdir("/storage/emulated/0/SKMonitor", 0755);
 

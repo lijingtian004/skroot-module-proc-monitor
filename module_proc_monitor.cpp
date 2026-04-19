@@ -357,6 +357,7 @@ static void stop_overlay() {
 
 // API Key 认证（存储在文件中）
 static std::string g_api_key;
+static bool g_api_key_enabled = false;  // 默认关闭
 static bool g_api_key_enabled = true;  // 默认启用
 
 // 生成随机 API Key
@@ -425,6 +426,8 @@ static void init_api_key(const char* module_dir) {
 }
 
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
+    mkdir("/storage/emulated/0/SKMonitor", 0755);
+
     // 创建存储目录
     mkdir("/storage/emulated/0/SKMonitor", 0755);
 
