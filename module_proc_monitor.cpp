@@ -445,6 +445,26 @@ public:
             kernel_module::webui::send_text(conn, 200, buf);
             return true;
         }
+
+        // 获取配置（双电芯等）
+        if (path == "/api/config") {
+            bool dual_battery = false;
+            FILE* rf = fopen("/data/adb/proc_monitor_config", "r");
+            if (rf) {
+                char line[256];
+                while (fgets(line, sizeof(line), rf)) {
+                    if (strncmp(line, "dual_battery=", 13) == 0) {
+                        dual_battery = (atoi(line + 13) == 1);
+                    }
+                }
+                fclose(rf);
+            }
+            char resp[128];
+            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
+            kernel_module::webui::send_text(conn, 200, resp);
+            return true;
+        }
+
         return false;
     }
 
@@ -605,38 +625,19 @@ public:
             return true;
         }
 
-        // 获取/设置配置（双电芯等）
+        // 更新配置（双电芯等）
         if (path == "/api/config") {
-            if (method == "GET") {
-                // 读取当前配置
-                bool dual_battery = false;
-                FILE* rf = fopen("/data/adb/proc_monitor_config", "r");
-                if (rf) {
-                    char line[256];
-                    while (fgets(line, sizeof(line), rf)) {
-                        if (strncmp(line, "dual_battery=", 13) == 0) {
-                            dual_battery = (atoi(line + 13) == 1);
-                        }
-                    }
-                    fclose(rf);
-                }
-                char resp[128];
-                snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
-                kernel_module::webui::send_text(conn, 200, resp);
-            } else {
-                // POST: 更新配置
-                bool dual_battery = (body.find("dual_battery=1") != std::string::npos) ||
-                                    (body.find("\"dual_battery\":true") != std::string::npos);
-                std::string config = "dual_battery=" + std::string(dual_battery ? "1" : "0") + "\n";
-                FILE* wf = fopen("/data/adb/proc_monitor_config", "w");
-                if (wf) {
-                    fwrite(config.c_str(), 1, config.size(), wf);
-                    fclose(wf);
-                }
-                char resp[128];
-                snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
-                kernel_module::webui::send_text(conn, 200, resp);
+            bool dual_battery = (body.find("dual_battery=1") != std::string::npos) ||
+                                (body.find("\"dual_battery\":true") != std::string::npos);
+            std::string config = "dual_battery=" + std::string(dual_battery ? "1" : "0") + "\n";
+            FILE* wf = fopen("/data/adb/proc_monitor_config", "w");
+            if (wf) {
+                fwrite(config.c_str(), 1, config.size(), wf);
+                fclose(wf);
             }
+            char resp[128];
+            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
+            kernel_module::webui::send_text(conn, 200, resp);
             return true;
         }
 
