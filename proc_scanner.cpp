@@ -1122,43 +1122,56 @@ void power_tracker_set_dual_battery(bool enabled) {
     printf("[proc_scanner] dual_battery set to: %d\n", g_dual_battery);
 }
 
-// 从 sysfs 读取实际电池功率（mW），支持双电芯
+// 从 sysfs 读取实际电池功率（mW），扫描所有电池设备
 static double read_battery_power_mw() {
-    // 主电池
-    double power1 = read_single_battery_power(
-        "/sys/class/power_supply/bms/uevent",
-        "/sys/class/power_supply/battery/current_now",
-        "/sys/class/power_supply/battery/voltage_now"
-    );
-
-    // 如果主电池没读到，尝试 battery 路径
-    if (power1 == 0) {
-        power1 = read_single_battery_power(
-            "/sys/class/power_supply/battery/uevent",
-            "/sys/class/power_supply/battery/current_now",
-            "/sys/class/power_supply/battery/voltage_now"
-        );
-    }
-
-    // 双电芯模式：读取第二个电池
-    double total_power = power1;
-    if (g_dual_battery) {
-        double power2 = read_single_battery_power(
-            "/sys/class/power_supply/bms2/uevent",
-            "/sys/class/power_supply/battery2/current_now",
-            "/sys/class/power_supply/battery2/voltage_now"
-        );
-        // 如果 bms2 不存在，尝试 battery_fg
-        if (power2 == 0) {
-            power2 = read_single_battery_power(
-                "/sys/class/power_supply/battery_fg/uevent",
-                "/sys/class/power_supply/battery_fg/current_now",
-                "/sys/class/power_supply/battery_fg/voltage_now"
-            );
+    double total_power = 0;
+    
+    // 扫描 /sys/class/power_supply/ 目录，找到所有电池类型设备
+    DIR* dir = opendir("/sys/class/power_supply");
+    if (!dir) return 0;
+    
+    struct dirent* ent;
+    int battery_count = 0;
+    
+    while ((ent = readdir(dir)) != nullptr) {
+        if (ent->d_name[0] == '.') continue;
+        
+        // 检查是否是电池类型
+        char type_path[256];
+        snprintf(type_path, sizeof(type_path), "/sys/class/power_supply/%s/type", ent->d_name);
+        FILE* tf = fopen(type_path, "r");
+        if (!tf) continue;
+        
+        char type[32] = {0};
+        fgets(type, sizeof(type), tf);
+        fclose(tf);
+        
+        // 去掉换行符
+        char* nl = strchr(type, '\n');
+        if (nl) *nl = 0;
+        
+        // 只处理 Battery 类型
+        if (strcasecmp(type, "Battery") != 0) continue;
+        
+        // 读取这个电池的功率
+        char uevent_path[256], current_path[256], voltage_path[256];
+        snprintf(uevent_path, sizeof(uevent_path), "/sys/class/power_supply/%s/uevent", ent->d_name);
+        snprintf(current_path, sizeof(current_path), "/sys/class/power_supply/%s/current_now", ent->d_name);
+        snprintf(voltage_path, sizeof(voltage_path), "/sys/class/power_supply/%s/voltage_now", ent->d_name);
+        
+        double power = read_single_battery_power(uevent_path, current_path, voltage_path);
+        if (power > 0) {
+            total_power += power;
+            battery_count++;
+            printf("[proc_scanner] battery '%s' power: %.1f mW\n", ent->d_name, power);
         }
-        total_power += power2;
+        
+        // 非双电芯模式只读第一个电池
+        if (!g_dual_battery && battery_count > 0) break;
     }
-
+    closedir(dir);
+    
+    printf("[proc_scanner] total battery power: %.1f mW (from %d battery)\n", total_power, battery_count);
     return total_power;
 }
 
