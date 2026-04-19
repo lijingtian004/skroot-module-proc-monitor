@@ -1062,20 +1062,13 @@ static void load_third_party_uids() {
     pclose(f);
 }
 
-// 从 sysfs 读取实际电池功率（mW）
-// 参考 Tweak-Android: 从 uevent 文件解析 POWER_SUPPLY_CURRENT_NOW 和 VOLTAGE_NOW
-static double read_battery_power_mw() {
-    const char* paths[] = {
-        "/sys/class/power_supply/bms/uevent",
-        "/sys/class/power_supply/battery/uevent",
-        nullptr
-    };
-
+// 从 sysfs 读取单个电池的功率（mW）
+static double read_single_battery_power(const char* uevent_path, const char* current_path, const char* voltage_path) {
     double cur_val = 0, vol_val = 0;
 
-    for (int i = 0; paths[i]; i++) {
-        FILE* f = fopen(paths[i], "r");
-        if (!f) continue;
+    // 尝试从 uevent 文件读取
+    FILE* f = fopen(uevent_path, "r");
+    if (f) {
         char line[512];
         while (fgets(line, sizeof(line), f)) {
             if (strncmp(line, "POWER_SUPPLY_CURRENT_NOW=", 25) == 0) {
@@ -1083,21 +1076,19 @@ static double read_battery_power_mw() {
             } else if (strncmp(line, "POWER_SUPPLY_VOLTAGE_NOW=", 25) == 0) {
                 vol_val = atof(line + 25);
             } else if (strncmp(line, "POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=", 38) == 0) {
-                // 充电时用这个
                 if (cur_val == 0) cur_val = atof(line + 38);
             }
         }
         fclose(f);
-        if (cur_val != 0 && vol_val != 0) break;
     }
 
     // 兜底：读单个文件
-    if (cur_val == 0) {
-        FILE* f = fopen("/sys/class/power_supply/battery/current_now", "r");
+    if (cur_val == 0 && current_path) {
+        FILE* f = fopen(current_path, "r");
         if (f) { fscanf(f, "%lf", &cur_val); fclose(f); }
     }
-    if (vol_val == 0) {
-        FILE* f = fopen("/sys/class/power_supply/battery/voltage_now", "r");
+    if (vol_val == 0 && voltage_path) {
+        FILE* f = fopen(voltage_path, "r");
         if (f) { fscanf(f, "%lf", &vol_val); fclose(f); }
     }
 
@@ -1105,14 +1096,12 @@ static double read_battery_power_mw() {
 
     cur_val = cur_val < 0 ? -cur_val : cur_val;  // 放电时为负
 
-    // 单位判断（参考 Tweak-Android 的 strToVoltage 逻辑）
-    // current: >1e6 → μA，>1000 → mA，否则已是 mA
+    // 单位判断
     double cur_ma;
     if (cur_val > 1e6) cur_ma = cur_val / 1000.0;
     else if (cur_val > 1000) cur_ma = cur_val / 1000.0;
     else cur_ma = cur_val;
 
-    // voltage: >1e6 → μV，>1000 → mV，否则已是 mV
     double vol_mv;
     if (vol_val > 1e6) vol_mv = vol_val / 1000.0;
     else if (vol_val > 1000) vol_mv = vol_val / 1000.0;
@@ -1120,6 +1109,48 @@ static double read_battery_power_mw() {
 
     // P(mW) = I(mA) × V(mV) / 1000
     return cur_ma * vol_mv / 1000.0;
+}
+
+static bool g_dual_battery = false;  // 双电芯模式
+
+// 从 sysfs 读取实际电池功率（mW），支持双电芯
+static double read_battery_power_mw() {
+    // 主电池
+    double power1 = read_single_battery_power(
+        "/sys/class/power_supply/bms/uevent",
+        "/sys/class/power_supply/battery/current_now",
+        "/sys/class/power_supply/battery/voltage_now"
+    );
+
+    // 如果主电池没读到，尝试 battery 路径
+    if (power1 == 0) {
+        power1 = read_single_battery_power(
+            "/sys/class/power_supply/battery/uevent",
+            "/sys/class/power_supply/battery/current_now",
+            "/sys/class/power_supply/battery/voltage_now"
+        );
+    }
+
+    // 双电芯模式：读取第二个电池
+    double total_power = power1;
+    if (g_dual_battery) {
+        double power2 = read_single_battery_power(
+            "/sys/class/power_supply/bms2/uevent",
+            "/sys/class/power_supply/battery2/current_now",
+            "/sys/class/power_supply/battery2/voltage_now"
+        );
+        // 如果 bms2 不存在，尝试 battery_fg
+        if (power2 == 0) {
+            power2 = read_single_battery_power(
+                "/sys/class/power_supply/battery_fg/uevent",
+                "/sys/class/power_supply/battery_fg/current_now",
+                "/sys/class/power_supply/battery_fg/voltage_now"
+            );
+        }
+        total_power += power2;
+    }
+
+    return total_power;
 }
 
 // 包名 → 中文名 映射
@@ -1275,10 +1306,40 @@ void power_tracker_init() {
     g_prev_total_cpu_sec = 0;
 }
 
+// 加载配置文件
+static void load_config(const char* module_dir) {
+    char path[512];
+    snprintf(path, sizeof(path), "%s/config.conf", module_dir);
+    FILE* f = fopen(path, "r");
+    if (!f) {
+        // 也尝试 /data/adb/ 下的配置
+        f = fopen("/data/adb/proc_monitor_config", "r");
+    }
+    if (!f) return;
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '#' || line[0] == '\n') continue;
+        char* eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char* val = eq + 1;
+        char* nl = strchr(val, '\n');
+        if (nl) *nl = 0;
+
+        if (strcmp(line, "dual_battery") == 0) {
+            g_dual_battery = (strcmp(val, "1") == 0 || strcmp(val, "true") == 0);
+        }
+    }
+    fclose(f);
+    printf("[proc_scanner] config loaded: dual_battery=%d\n", g_dual_battery);
+}
+
 // 带 module_dir 的初始化
 void power_tracker_init_with_dir(const char* module_dir) {
     power_tracker_init();
     load_custom_labels(module_dir);
+    load_config(module_dir);
     load_uid_pkg_map();
     load_third_party_uids();
 }

@@ -203,10 +203,18 @@ function renderDrainInfo() {
   }
   let html = '';
   drainData.forEach((a, i) => {
-    const mw = drainMode === 'system' ? ((a.avg_battery_mw || 0) || (a.power_mw || 0)) : (a.power_mw || 0);
+    // 整机模式用 avg_battery_mw，为0时显示 "--"
+    // 应用模式用 power_mw
+    let mw, watts;
+    if (drainMode === 'system') {
+      mw = a.avg_battery_mw || 0;
+      watts = mw > 0 ? (mw / 1000).toFixed(2) : '--';
+    } else {
+      mw = a.power_mw || 0;
+      watts = (mw / 1000).toFixed(2);
+    }
     const color = mw > 1500 ? 'var(--red)' : mw > 500 ? 'var(--amber)' : 'var(--green)';
     const name = esc(a.label || a.package || `UID ${a.uid}`);
-    const watts = (mw / 1000).toFixed(2);
     html += `<div class="drain-row" onclick="showDrainDetail(${i})">
       <div class="drain-rank">${i + 1}</div>
       <div class="drain-info">
@@ -230,7 +238,7 @@ function showDrainDetail(i) {
   const body = document.getElementById('modalBody');
   const title = document.getElementById('modalTitle');
   title.textContent = a.label || a.package || `UID ${a.uid}`;
-  body.innerHTML = `
+  let html = `
     <div class="detail-grid">
       <div class="detail-row"><span class="detail-label">UID</span><span class="detail-value">${a.uid}</span></div>
       <div class="detail-row"><span class="detail-label">包名</span><span class="detail-value">${esc(a.package || '--')}</span></div>
@@ -239,9 +247,16 @@ function showDrainDetail(i) {
       <div class="detail-row"><span class="detail-label">内存占用</span><span class="detail-value">${a.mem_mb} MB</span></div>
       <div class="detail-row"><span class="detail-label">IO 总量</span><span class="detail-value">${a.io_mb} MB</span></div>
       <div class="detail-row"><span class="detail-label">进程数</span><span class="detail-value">${a.procs}</span></div>
-      <div class="detail-row"><span class="detail-label">功耗(CPU占比)</span><span class="detail-value">${(a.power_mw/1000).toFixed(2)} W</span></div>
-      <div class="detail-row"><span class="detail-label">功耗(期间均值)</span><span class="detail-value">${((a.avg_battery_mw||0)/1000).toFixed(2)} W</span></div>
+      <div class="detail-row"><span class="detail-label">功耗(CPU占比)</span><span class="detail-value">${a.power_mw > 0 ? (a.power_mw/1000).toFixed(2) + ' W' : '--'}</span></div>
+      <div class="detail-row"><span class="detail-label">功耗(期间均值)</span><span class="detail-value">${a.avg_battery_mw > 0 ? (a.avg_battery_mw/1000).toFixed(2) + ' W' : '--'}</span></div>
     </div>`;
+  // 添加结束进程按钮（只对非系统应用显示）
+  if (a.uid >= 10000) {
+    html += `<div class="detail-actions">
+      <button class="btn-danger" onclick="killProcess(${a.uid})">结束此应用</button>
+    </div>`;
+  }
+  body.innerHTML = html;
   overlay.classList.add('show');
 }
 
@@ -439,7 +454,14 @@ function showProcDetail(p) {
   title.textContent = `${p.comm} — 进程`;
   const rows = [['PID', p.pid], ['PPID', p.ppid], ['UID', `${p.uid} (${uidName(p.uid)})`], ['名称', p.comm]];
   if (p.cmdline) rows.push(['命令行', p.cmdline]);
-  body.innerHTML = rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(String(v))}</span></div>`).join('');
+  let html = rows.map(([l, v]) => `<div class="detail-row"><span class="detail-label">${esc(l)}</span><span class="detail-value">${esc(String(v))}</span></div>`).join('');
+  // 添加结束进程按钮（只对非系统进程显示）
+  if (p.uid >= 10000) {
+    html += `<div class="detail-actions">
+      <button class="btn-danger" onclick="killProcess(${p.uid})">结束此应用</button>
+    </div>`;
+  }
+  body.innerHTML = html;
   overlay.classList.add('show');
 }
 
@@ -603,9 +625,43 @@ async function fetchOverlayConfig() {
   } catch(e) {}
 }
 
+// ============ 双电芯配置 ============
+async function fetchConfig() {
+  const raw = await api('/api/config', null, 'GET');
+  if (raw) try {
+    const d = JSON.parse(raw);
+    const toggle = document.getElementById('dualBatteryToggle');
+    if (toggle) toggle.checked = d.dual_battery === true;
+  } catch(e) {}
+}
+
+async function toggleDualBattery() {
+  const toggle = document.getElementById('dualBatteryToggle');
+  const val = toggle.checked ? '1' : '0';
+  await api('/api/config', 'dual_battery=' + val);
+}
+
+// ============ 结束进程 ============
+async function killProcess(uid) {
+  if (!confirm('确定要结束此应用 (UID: ' + uid + ') 吗？')) return;
+  const result = await api('/api/kill-process', '{"uid":' + uid + '}');
+  try {
+    const d = JSON.parse(result);
+    if (d.success) {
+      alert('已结束: ' + (d.package || 'UID ' + uid));
+      closeModal();
+      fetchProcs();
+    } else {
+      alert('结束失败');
+    }
+  } catch(e) {
+    alert('操作失败');
+  }
+}
+
 // ============ Polling ============
 async function pollAll() {
-  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs(), fetchCharging(), fetchOverlayStatus(), fetchOverlayConfig()]);
+  await Promise.all([fetchEvents(), fetchAlerts(), fetchStats(), fetchProcs(), fetchCharging(), fetchOverlayStatus(), fetchOverlayConfig(), fetchConfig()]);
   const dot = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
   dot.classList.add('online');

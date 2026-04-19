@@ -311,6 +311,33 @@ body {
 .btn-sm:hover { border-color: var(--border-active); color: var(--text); }
 .btn-sm:active { background: var(--surface-3); }
 
+/* ===== Danger Button ===== */
+.btn-danger {
+  padding: 10px 20px;
+  background: rgba(255, 80, 80, 0.15);
+  border: 1px solid rgba(255, 80, 80, 0.4);
+  color: #ff5050;
+  font-size: 13px;
+  font-family: var(--font);
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+}
+.btn-danger:hover {
+  background: rgba(255, 80, 80, 0.25);
+  border-color: rgba(255, 80, 80, 0.6);
+}
+.btn-danger:active {
+  background: rgba(255, 80, 80, 0.35);
+}
+
+.detail-actions {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
 /* ===== Search ===== */
 .search-input {
   flex: 1;

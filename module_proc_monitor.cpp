@@ -605,6 +605,97 @@ public:
             return true;
         }
 
+        // 获取/设置配置（双电芯等）
+        if (path == "/api/config") {
+            if (method == "GET") {
+                // 读取当前配置
+                bool dual_battery = false;
+                FILE* rf = fopen("/data/adb/proc_monitor_config", "r");
+                if (rf) {
+                    char line[256];
+                    while (fgets(line, sizeof(line), rf)) {
+                        if (strncmp(line, "dual_battery=", 13) == 0) {
+                            dual_battery = (atoi(line + 13) == 1);
+                        }
+                    }
+                    fclose(rf);
+                }
+                char resp[128];
+                snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
+                kernel_module::webui::send_text(conn, 200, resp);
+            } else {
+                // POST: 更新配置
+                bool dual_battery = (body.find("dual_battery=1") != std::string::npos) ||
+                                    (body.find("\"dual_battery\":true") != std::string::npos);
+                std::string config = "dual_battery=" + std::string(dual_battery ? "1" : "0") + "\n";
+                FILE* wf = fopen("/data/adb/proc_monitor_config", "w");
+                if (wf) {
+                    fwrite(config.c_str(), 1, config.size(), wf);
+                    fclose(wf);
+                }
+                char resp[128];
+                snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
+                kernel_module::webui::send_text(conn, 200, resp);
+            }
+            return true;
+        }
+
+        // 结束进程
+        if (path == "/api/kill-process") {
+            // body 格式: "uid=10123" 或 "{\"uid\":10123}"
+            int uid = -1;
+            // 尝试解析 uid
+            size_t pos = body.find("uid=");
+            if (pos != std::string::npos) {
+                uid = atoi(body.substr(pos + 4).c_str());
+            } else {
+                pos = body.find("\"uid\":");
+                if (pos != std::string::npos) {
+                    uid = atoi(body.substr(pos + 6).c_str());
+                }
+            }
+
+            if (uid <= 0) {
+                kernel_module::webui::send_text(conn, 400, "{\"error\":\"invalid uid\"}");
+                return true;
+            }
+
+            // 使用 am force-stop 结束应用（需要通过 shell）
+            char cmd[256];
+            // 先通过 UID 获取包名
+            char pkg_cmd[256];
+            snprintf(pkg_cmd, sizeof(pkg_cmd), "grep '^package:' /data/system/packages.list | grep ' %d ' | awk '{print $1}'", uid);
+            FILE* f = popen(pkg_cmd, "r");
+            char pkg[256] = {0};
+            if (f) {
+                fgets(pkg, sizeof(pkg), f);
+                pclose(f);
+                // 去掉换行符
+                char* nl = strchr(pkg, '\n');
+                if (nl) *nl = 0;
+            }
+
+            bool success = false;
+            if (strlen(pkg) > 0) {
+                snprintf(cmd, sizeof(cmd), "am force-stop %s 2>&1", pkg);
+                FILE* kill_f = popen(cmd, "r");
+                if (kill_f) {
+                    pclose(kill_f);
+                    success = true;
+                }
+            }
+
+            // 也尝试用 kill 命令杀掉该 UID 的进程
+            snprintf(cmd, sizeof(cmd), "pkill -9 -U %d 2>/dev/null", uid);
+            system(cmd);
+
+            char resp[256];
+            snprintf(resp, sizeof(resp), "{\"success\":%s,\"uid\":%d,\"package\":\"%s\"}",
+                     success ? "true" : "false", uid, pkg);
+            kernel_module::webui::send_text(conn, 200, resp);
+            return true;
+        }
+
         return false;
     }
 
