@@ -286,13 +286,16 @@ static inline void put_pixel(uint32_t* pixels, int stride, int x, int y, int w, 
             pixels[y * stride + x] = color;
         } else if (a > 0) {
             uint32_t dst = pixels[y * stride + x];
+            uint8_t da = (dst >> 24) & 0xFF;
             uint8_t dr = dst & 0xFF, dg = (dst>>8)&0xFF, db = (dst>>16)&0xFF;
             float fa = a / 255.0f;
-            pixels[y * stride + x] = make_rgba(
-                (uint8_t)(dr + (((int)(color&0xFF) - dr) * fa)),
-                (uint8_t)(dg + (((int)((color>>8)&0xFF) - dg) * fa)),
-                (uint8_t)(db + (((int)((color>>16)&0xFF) - db) * fa)),
-                255);
+            float fd = da / 255.0f;
+            // Premultiplied alpha blending
+            uint8_t nr = (uint8_t)((color&0xFF) * fa + dr * (1.0f - fa));
+            uint8_t ng = (uint8_t)(((color>>8)&0xFF) * fa + dg * (1.0f - fa));
+            uint8_t nb = (uint8_t)(((color>>16)&0xFF) * fa + db * (1.0f - fa));
+            uint8_t na = (uint8_t)((a + da * (1.0f - fa)) * 255);
+            pixels[y * stride + x] = (uint32_t)nr | ((uint32_t)ng << 8) | ((uint32_t)nb << 16) | ((uint32_t)na << 24);
         }
     }
 }

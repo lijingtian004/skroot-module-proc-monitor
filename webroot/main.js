@@ -499,7 +499,8 @@ function renderChargingInfo() {
 async function toggleOverlay() {
   const btn = document.getElementById('overlayToggleBtn');
   const btnText = document.getElementById('overlayBtnText');
-  const status = document.getElementById('overlayStatus');
+  const statusDot = document.getElementById('overlayStatusDot');
+  const statusText = document.getElementById('overlayStatus');
   const isRunning = btnText.textContent === '关闭悬浮窗';
   const action = isRunning ? 'stop' : 'start';
   btnText.textContent = '操作中...';
@@ -507,45 +508,41 @@ async function toggleOverlay() {
   const raw = await api('/api/overlay-toggle', action);
   if (raw) try {
     const d = JSON.parse(raw);
-    if (d.running) {
-      btnText.textContent = '关闭悬浮窗';
-      btn.classList.add('active');
-      status.textContent = '运行中 (PID ' + d.pid + ')';
-      status.style.color = 'var(--green)';
-    } else {
-      btnText.textContent = '启动悬浮窗';
-      btn.classList.remove('active');
-      status.textContent = '未运行';
-      status.style.color = 'var(--text-3)';
-    }
+    updateOverlayStatusUI(d.running, d.pid);
   } catch(e) {}
   btn.disabled = false;
+}
+
+function updateOverlayStatusUI(running, pid) {
+  const btnText = document.getElementById('overlayBtnText');
+  const btn = document.getElementById('overlayToggleBtn');
+  const statusDot = document.getElementById('overlayStatusDot');
+  const statusText = document.getElementById('overlayStatus');
+  
+  if (running) {
+    btnText.textContent = '关闭悬浮窗';
+    btn.classList.add('active');
+    statusText.textContent = '运行中';
+    statusDot.classList.add('running');
+  } else {
+    btnText.textContent = '启动悬浮窗';
+    btn.classList.remove('active');
+    statusText.textContent = '未运行';
+    statusDot.classList.remove('running');
+  }
 }
 
 async function fetchOverlayStatus() {
   const raw = await api('/api/overlay-toggle');
   if (raw) try {
     const d = JSON.parse(raw);
-    const btnText = document.getElementById('overlayBtnText');
-    const btn = document.getElementById('overlayToggleBtn');
-    const status = document.getElementById('overlayStatus');
-    if (d.running) {
-      btnText.textContent = '关闭悬浮窗';
-      btn.classList.add('active');
-      status.textContent = '运行中 (PID ' + d.pid + ')';
-      status.style.color = 'var(--green)';
-    } else {
-      btnText.textContent = '启动悬浮窗';
-      btn.classList.remove('active');
-      status.textContent = '未运行';
-      status.style.color = 'var(--text-3)';
-    }
+    updateOverlayStatusUI(d.running, d.pid);
   } catch(e) {}
 }
 
 // ============ Fast Refresh Toggle ============
-let lastFetchedFastMode = -1;  // 记录上次获取的值，避免无谓更新
-let lastFetchedStyle = -1;  // 记录上次获取的样式
+let lastFetchedFastMode = -1;
+let lastFetchedStyle = -1;
 
 async function toggleFastRefresh() {
   const checkbox = document.getElementById('fastRefreshToggle');
@@ -561,18 +558,32 @@ async function toggleFastRefresh() {
   } catch(e) {}
 }
 
-async function changeOverlayStyle() {
-  const select = document.getElementById('overlayStyleSelect');
-  const style = parseInt(select.value);
+async function setOverlayStyle(style) {
   const config = `overlay_style=${style}`;
   const result = await api('/api/overlay-config', config);
   if (result) try {
     const d = JSON.parse(result);
     if (d.overlay_style !== undefined) {
       lastFetchedStyle = d.overlay_style;
-      select.value = d.overlay_style;
+      updateStyleUI(d.overlay_style);
     }
   } catch(e) {}
+}
+
+function updateStyleUI(style) {
+  // 更新按钮状态
+  document.querySelectorAll('.style-btn').forEach(btn => {
+    btn.classList.remove('active');
+    if (parseInt(btn.dataset.style) === style) {
+      btn.classList.add('active');
+    }
+  });
+  
+  // 更新描述文字
+  const desc = document.getElementById('currentStyleDesc');
+  if (desc) {
+    desc.textContent = style === 1 ? '透明背景' : '半透明黑底';
+  }
 }
 
 async function fetchOverlayConfig() {
@@ -580,15 +591,14 @@ async function fetchOverlayConfig() {
   if (raw) try {
     const d = JSON.parse(raw);
     const checkbox = document.getElementById('fastRefreshToggle');
-    const select = document.getElementById('overlayStyleSelect');
     
     if (checkbox && d.fast_mode !== undefined && d.fast_mode !== lastFetchedFastMode) {
       lastFetchedFastMode = d.fast_mode;
       checkbox.checked = d.fast_mode === 1;
     }
-    if (select && d.overlay_style !== undefined && d.overlay_style !== lastFetchedStyle) {
+    if (d.overlay_style !== undefined && d.overlay_style !== lastFetchedStyle) {
       lastFetchedStyle = d.overlay_style;
-      select.value = d.overlay_style;
+      updateStyleUI(d.overlay_style);
     }
   } catch(e) {}
 }

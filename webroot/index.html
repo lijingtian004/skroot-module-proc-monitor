@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>PROC MONITOR — SKRoot Pro</title>
   <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="overlay-styles.css">
 </head>
 <body>
   <div class="app">
@@ -42,29 +43,53 @@
         </div>
       </div>
 
-      <!-- 悬浮窗开关 -->
-      <div class="section-block">
+      <!-- 悬浮窗设置 -->
+      <div class="section-block overlay-section">
         <div class="section-header">
           <span class="section-label">悬浮窗</span>
+          <div class="status-pill" id="overlayStatusPill">
+            <span class="status-dot" id="overlayStatusDot"></span>
+            <span class="status-text" id="overlayStatus">未运行</span>
+          </div>
         </div>
-        <div class="overlay-toggle-bar">
-          <button class="overlay-btn" id="overlayToggleBtn" onclick="toggleOverlay()">
+        
+        <div class="overlay-control">
+          <button class="overlay-toggle-btn" id="overlayToggleBtn" onclick="toggleOverlay()">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M5 3l14 9-14 9V3z"/>
+            </svg>
             <span id="overlayBtnText">启动悬浮窗</span>
           </button>
-          <span class="overlay-status" id="overlayStatus">未运行</span>
         </div>
-        <div class="overlay-options">
-          <label class="option-label">
-            <input type="checkbox" id="fastRefreshToggle" onchange="toggleFastRefresh()">
-            <span>快速刷新 (2秒)</span>
-          </label>
-          <label class="option-label">
-            <span>背景样式:</span>
-            <select id="overlayStyleSelect" onchange="changeOverlayStyle()">
-              <option value="0">半透明黑</option>
-              <option value="1">透明</option>
-            </select>
-          </label>
+        
+        <div class="overlay-settings">
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">快速刷新</span>
+              <span class="setting-desc">2秒更新间隔</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="fastRefreshToggle" onchange="toggleFastRefresh()">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">背景样式</span>
+              <span class="setting-desc" id="currentStyleDesc">半透明黑底</span>
+            </div>
+            <div class="style-selector">
+              <button class="style-btn active" id="styleBtn0" onclick="setOverlayStyle(0)" data-style="0">
+                <div class="style-preview preview-dark"></div>
+                <span>深色</span>
+              </button>
+              <button class="style-btn" id="styleBtn1" onclick="setOverlayStyle(1)" data-style="1">
+                <div class="style-preview preview-transparent"></div>
+                <span>透明</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
