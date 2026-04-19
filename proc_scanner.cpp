@@ -606,64 +606,11 @@ static double read_gpu_pct(char* name_out, int name_sz) {
 
     // 高通 Adreno 备选: /sys/class/kgsl/kgsl-3d0/gpu_busy_percentage
     {
-        FILE* f = fopen("/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage", "r");
-        if (f) {
-            char buf[32] = {};
-            fread(buf, 1, sizeof(buf) - 1, f);
-            fclose(f);
-            strncpy(name_out, "Adreno", name_sz - 1);
-            return atof(buf);
-        }
-    }
+        FILE* f = fopen("/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage", "r")
 
-    // Mali: /sys/devices/platform/mali/utilization
-    {
-        FILE* f = fopen("/sys/devices/platform/mali/utilization", "r");
-        if (f) {
-            int val = 0;
-            if (fscanf(f, "%d", &val) == 1) {
-                fclose(f);
-                strncpy(name_out, "Mali", name_sz - 1);
-                return val / 100.0; // 通常是千分比
-            }
-            fclose(f);
-        }
-    }
+... [OUTPUT TRUNCATED - 1463 chars omitted out of 51463 total] ...
 
-    // Mali 备选: /sys/class/devfreq/mali/ 或 /sys/kernel/gpu/
-    {
-        FILE* f = fopen("/sys/kernel/gpu/gpu_busy", "r");
-        if (f) {
-            int val = 0;
-            if (fscanf(f, "%d", &val) == 1) {
-                fclose(f);
-                strncpy(name_out, "GPU", name_sz - 1);
-                return val;
-            }
-            fclose(f);
-        }
-    }
-
-    return -1; // 不可用
-}
-
-// 读取前台 App 的 CPU 和内存（直接从 /proc 读取，不依赖 g_power_cache）
-static void get_fg_app_info(char* pkg_out, int pkg_sz, double* cpu_pct, int64_t* mem_mb) {
-    pkg_out[0] = 0;
-    *cpu_pct = 0;
-    *mem_mb = 0;
-
-    uid_t fg_uid = find_foreground_uid();
-    if (fg_uid == (uid_t)-1) return;
-
-    // 遍历 /proc 找该 UID 下的进程
-    DIR* dir = opendir("/proc");
-    if (!d
-
-... [OUTPUT TRUNCATED - 3922 chars omitted out of 53922 total] ...
-
-;
-    if (!dir) return (uid_t)-1;
+turn (uid_t)-1;
 
     struct dirent* ent;
     uid_t fg_uid = (uid_t)-1;
@@ -1528,4 +1475,43 @@ std::vector<AppPowerInfo> power_tracker_get_top(int n) {
         });
     if ((int)result.size() > n) result.resize(n);
     return result;
+}
+// OverlayData 全局缓存
+static OverlayData g_overlay_data = {};
+static std::mutex g_overlay_mutex;
+
+// 获取悬浮窗实时数据
+OverlayData overlay_get_data() {
+    std::lock_guard<std::mutex> lock(g_overlay_mutex);
+    
+    // 读取逐核心 CPU
+    read_per_core_cpu(g_overlay_data.cpu_per_core, 16, 
+                      &g_overlay_data.cpu_core_count, 
+                      &g_overlay_data.cpu_total_pct);
+    
+    // 读取 GPU
+    g_overlay_data.gpu_pct = read_gpu_pct(g_overlay_data.gpu_name, sizeof(g_overlay_data.gpu_name));
+    
+    // 读取电池信息
+    g_overlay_data.power_mw = read_battery_power_mw();
+    
+    // 充电信息
+    ChargingInfo ch = charging_get_info();
+    g_overlay_data.battery_level = ch.battery_level;
+    g_overlay_data.battery_temp = ch.battery_temp;
+    strncpy(g_overlay_data.battery_status, ch.battery_status, sizeof(g_overlay_data.battery_status) - 1);
+    
+    // 前台应用
+    uid_t fg_uid = find_foreground_uid();
+    if (fg_uid != (uid_t)-1) {
+        std::lock_guard<std::mutex> plock(g_power_cache_mutex);
+        auto it = g_power_cache.find(fg_uid);
+        if (it != g_power_cache.end()) {
+            strncpy(g_overlay_data.fg_app, it->second.package_name, sizeof(g_overlay_data.fg_app) - 1);
+            g_overlay_data.fg_cpu_pct = it->second.cpu_usage_pct;
+            g_overlay_data.fg_mem_mb = it->second.mem_rss_kb / 1024;
+        }
+    }
+    
+    return g_overlay_data;
 }
