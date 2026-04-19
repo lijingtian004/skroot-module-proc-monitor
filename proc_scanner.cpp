@@ -1113,6 +1113,12 @@ static double read_single_battery_power(const char* uevent_path, const char* cur
 
 static bool g_dual_battery = false;  // 双电芯模式
 
+// 设置双电芯模式（供API调用）
+void power_tracker_set_dual_battery(bool enabled) {
+    g_dual_battery = enabled;
+    printf("[proc_scanner] dual_battery set to: %d\n", g_dual_battery);
+}
+
 // 从 sysfs 读取实际电池功率（mW），支持双电芯
 static double read_battery_power_mw() {
     // 主电池

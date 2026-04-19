@@ -635,6 +635,8 @@ public:
                 fwrite(config.c_str(), 1, config.size(), wf);
                 fclose(wf);
             }
+            // 立即更新运行时变量
+            power_tracker_set_dual_battery(dual_battery);
             char resp[128];
             snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
             kernel_module::webui::send_text(conn, 200, resp);
