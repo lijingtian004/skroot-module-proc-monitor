@@ -487,19 +487,20 @@ static void* touch_thread(void*) {
 }
 
 // ====== 渲染 ======
+// 注意：此系统中 alpha越高越透明，alpha=0为完全不透明
 static void draw_vbar(uint32_t* px, int stride, int w, int h,
                       int bx, int by, int bw, int bh, float pct, uint32_t color) {
     // 竖向柱状图：从下往上填充
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    // 背景（完全不透明）
-    fill_rounded_rect(px, stride, w, h, bx, by, bw, bh, 2, make_rgba(40,40,40,255));
+    // 背景（alpha=0 完全不透明）
+    fill_rounded_rect(px, stride, w, h, bx, by, bw, bh, 2, make_rgba(40,40,40,0));
     // 填充（从底部起）
     int fill_h = (int)(bh * pct / 100.0f);
     if (fill_h > 1) {
         int fy = by + bh - fill_h;
-        // 确保填充色完全不透明
-        uint32_t bar_color = pct > 80 ? make_rgba(255,100,80,255) :
-                             pct > 50 ? make_rgba(255,215,75,255) : make_rgba(color & 0xFF, (color>>8)&0xFF, (color>>16)&0xFF, 255);
+        // alpha=0 完全不透明
+        uint32_t bar_color = pct > 80 ? make_rgba(255,100,80,0) :
+                             pct > 50 ? make_rgba(255,215,75,0) : make_rgba(color & 0xFF, (color>>8)&0xFF, (color>>16)&0xFF, 0);
         fill_rounded_rect(px, stride, w, h, bx+1, fy, bw-2, fill_h, 2, bar_color);
     }
 }
@@ -540,19 +541,20 @@ static void render_frame() {
     memset(px, 0, stride * h * 4);
 
     // 根据样式绘制背景
+    // 注意：此系统中 alpha越高越透明
     uint32_t bg_color;
     if (g_overlay_style == 1) {
-        // 透明样式：透明度更高（alpha更低=更透明）
-        bg_color = make_rgba(20, 20, 25, 40);  // alpha=40，更透明
+        // 透明样式：alpha高=更透明
+        bg_color = make_rgba(20, 20, 25, 200);  // alpha=200，高透明度
     } else {
-        // 默认样式：黑色，透明度更低（alpha更高=更不透明）
-        bg_color = make_rgba(0, 0, 0, 230);    // alpha=230，几乎不透明
+        // 默认样式：alpha低=更不透明
+        bg_color = make_rgba(0, 0, 0, 60);      // alpha=60，低透明度
     }
     fill_rounded_rect(px, stride, w, h, wx, wy, ww, wh, ww*0.02f, bg_color);
 
-    uint32_t white = make_rgba(255,255,255,255);
-    uint32_t dim = make_rgba(180,180,180,200);
-    uint32_t accent = make_rgba(100,200,255,255);
+    uint32_t white = make_rgba(255,255,255,0);      // alpha=0 完全不透明
+    uint32_t dim = make_rgba(180,180,180,50);       // alpha=50 轻微透明
+    uint32_t accent = make_rgba(100,200,255,0);     // alpha=0 完全不透明
 
     // === 左列：电量 + 电池温度 ===
     int col1x = wx + pad;
@@ -561,7 +563,7 @@ static void render_frame() {
     char bat_str[16];
     if (d.bat_level >= 0) snprintf(bat_str, sizeof(bat_str), "%d%%", d.bat_level);
     else snprintf(bat_str, sizeof(bat_str), "--%%");
-    uint32_t bat_color = d.bat_level > 20 ? accent : make_rgba(255,100,80,255);
+    uint32_t bat_color = d.bat_level > 20 ? accent : make_rgba(255,100,80,0);
     int bw = text_width(bat_str, big_fs);
     draw_text(px, stride, w, h, col1x + (col_w - bw)/2, ty, bat_str, bat_color, big_fs);
     // 电量标签（移除BATT文字，只保留数值）
@@ -569,7 +571,7 @@ static void render_frame() {
     // 下块 - 电池温度
     int by = wy + pad + top_h + pad;
     char bt_str[16]; snprintf(bt_str, sizeof(bt_str), "%.1fC", d.bat_temp/10.0f);
-    uint32_t bt_color = d.bat_temp > 450 ? make_rgba(255,100,80,255) : d.bat_temp > 380 ? make_rgba(255,215,75,255) : white;
+    uint32_t bt_color = d.bat_temp > 450 ? make_rgba(255,100,80,0) : d.bat_temp > 380 ? make_rgba(255,215,75,0) : white;
     bw = text_width(bt_str, fs);
     draw_text(px, stride, w, h, col1x + (col_w - bw)/2, by, bt_str, bt_color, fs);
     // 温度标签（移除TEMP文字）
@@ -579,7 +581,7 @@ static void render_frame() {
     // 上块 - FPS
     ty = wy + pad;
     char fps_str[16]; snprintf(fps_str, sizeof(fps_str), "%d", d.fps);
-    uint32_t fps_color = d.fps >= 25 ? make_rgba(100,255,130,255) : d.fps >= 15 ? make_rgba(255,215,75,255) : make_rgba(255,100,80,255);
+    uint32_t fps_color = d.fps >= 25 ? make_rgba(100,255,130,0) : d.fps >= 15 ? make_rgba(255,215,75,0) : make_rgba(255,100,80,0);
     bw = text_width(fps_str, big_fs);
     draw_text(px, stride, w, h, col2x + (col_w - bw)/2, ty, fps_str, fps_color, big_fs);
     // FPS标签（移除FPS文字）
@@ -588,7 +590,7 @@ static void render_frame() {
     by = wy + pad + top_h + pad;
     char pwr_str[16];
     snprintf(pwr_str, sizeof(pwr_str), "%.1fW", d.power_mw/1000.0);
-    uint32_t pwr_color = d.power_mw > 5000 ? make_rgba(255,100,80,255) : d.power_mw > 2000 ? make_rgba(255,215,75,255) : white;
+    uint32_t pwr_color = d.power_mw > 5000 ? make_rgba(255,100,80,0) : d.power_mw > 2000 ? make_rgba(255,215,75,0) : white;
     draw_text(px, stride, w, h, col2x + (col_w - text_width(pwr_str,fs))/2, by, pwr_str, pwr_color, fs);
     // 功率标签（移除POWER文字）
 
