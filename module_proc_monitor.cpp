@@ -674,8 +674,10 @@ public:
                 }
                 fclose(rf);
             }
-            char resp[128];
-            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s}", dual_battery ? "true" : "false");
+            char resp[256];
+            snprintf(resp, sizeof(resp), "{\"dual_battery\":%s,\"api_key_enabled\":%s}",
+                     dual_battery ? "true" : "false",
+                     g_api_key_enabled ? "true" : "false");
             kernel_module::webui::send_text(conn, 200, resp);
             return true;
         }
@@ -1062,7 +1064,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("3.5.28")
+SKROOT_MODULE_VERSION("3.5.29")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")
