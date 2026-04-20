@@ -301,6 +301,7 @@ static double read_total_cpu_sec();
 
 // 进程 CPU 时间缓存（用于计算增量）
 static std::unordered_map<pid_t, double> g_prev_proc_cpu;
+static double g_prev_total_cpu_sec = 0;  // 需在 proc_scanner_get_all_procs 之前
 
 std::vector<ProcInfo> proc_scanner_get_all_procs() {
     // 读取当前总 CPU 时间
@@ -758,7 +759,6 @@ static std::unordered_map<uid_t, UidSample> g_prev_samples;
 static std::unordered_map<uid_t, AppPowerInfo> g_power_cache;
 static std::mutex g_power_cache_mutex;  // 保护 g_power_cache 的互斥锁
 static double g_last_sample_time = 0;
-static double g_prev_total_cpu_sec = 0;
 static double g_battery_power_mw = 0;  // 实际电池功率 mW（从 sysfs 读取）
 
 // ============ 采样历史（用于整机模式的 App 功耗平均值）============
