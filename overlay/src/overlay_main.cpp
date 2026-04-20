@@ -37,8 +37,8 @@ static std::string g_api_key = "";  // API Key
 
 // 读取API Key
 static void load_api_key() {
-    FILE* f = fopen("/data/adb/proc_monitor_api_key", "r");
-    if (!f) f = fopen("/data/local/tmp/proc_monitor_api_key", "r");
+    FILE* f = fopen("/storage/emulated/0/SKMonitor/proc_monitor_api_key", "r");
+    if (!f) f = fopen("/data/adb/proc_monitor_api_key", "r");
     if (f) {
         char buf[64] = {0};
         if (fgets(buf, sizeof(buf), f)) {

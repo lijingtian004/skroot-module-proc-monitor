@@ -910,7 +910,7 @@ public:
                     close(kfd);
                 }
                 // 同时写入overlay可读取的路径
-                int ofd = open("/data/adb/proc_monitor_api_key", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                int ofd = open("/storage/emulated/0/SKMonitor/proc_monitor_api_key", O_WRONLY | O_CREAT | O_TRUNC, 0644);
                 if (ofd >= 0) {
                     write(ofd, g_api_key.c_str(), g_api_key.size());
                     close(ofd);
@@ -960,7 +960,7 @@ public:
                     write(fd, g_api_key.c_str(), g_api_key.size());
                     close(fd);
                 }
-                int ofd = open("/data/adb/proc_monitor_api_key", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                int ofd = open("/storage/emulated/0/SKMonitor/proc_monitor_api_key", O_WRONLY | O_CREAT | O_TRUNC, 0644);
                 if (ofd >= 0) {
                     write(ofd, g_api_key.c_str(), g_api_key.size());
                     close(ofd);
