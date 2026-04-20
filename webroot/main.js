@@ -876,7 +876,7 @@ async function initApiKey() {
   }
   function log(msg) { dbg.innerHTML += msg + '<br>'; console.log(msg); }
   
-  log('[1] initApiKey start');
+  log('[v3.5.38] initApiKey start');
   
   // 检测 API Key 是否启用：尝试调 /api/config
   // - 200 → 未启用
