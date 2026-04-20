@@ -690,15 +690,28 @@ async function toggleApiKey() {
   try {
     const d = JSON.parse(resp);
     if (d.enabled && d.key) {
-      apiKey = d.key;
-      localStorage.setItem('skroot_api_key', d.key);
-      alert('API Key 已启用: ' + d.key.substring(0, 8) + '...\nKey 已复制到剪贴板');
-      navigator.clipboard.writeText(d.key);
+      // 弹窗让用户选择：使用自定义 Key 或自动生成的 Key
+      const customKey = prompt('API Key 已自动生成\n\n点击确定使用自定义 Key，或取消使用自动生成的 Key\n\n自动生成: ' + d.key.substring(0, 8) + '...');
+      if (customKey && customKey.trim().length >= 8) {
+        // 用户输入了自定义 Key，需要重新设置
+        apiKey = customKey.trim();
+        localStorage.setItem('skroot_api_key', apiKey);
+        // 通知后端更新 Key
+        await apiPost('/api/apikey-setkey', 'key=' + encodeURIComponent(apiKey));
+        alert('已使用自定义 API Key');
+      } else {
+        apiKey = d.key;
+        localStorage.setItem('skroot_api_key', d.key);
+        alert('已启用自动生成的 API Key: ' + d.key.substring(0, 8) + '...');
+      }
     } else {
       apiKey = '';
       localStorage.removeItem('skroot_api_key');
+      alert('API Key 认证已关闭');
     }
-  } catch(e) {}
+  } catch(e) {
+    console.error('toggleApiKey error:', e);
+  }
   lastApiKeyId = toggle.checked;
 }
 

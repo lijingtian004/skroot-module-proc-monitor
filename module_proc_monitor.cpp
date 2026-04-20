@@ -542,8 +542,9 @@ public:
 
     bool handleGet(CivetServer* server, struct mg_connection* conn,
                    const std::string& path, const std::string& query) override {
-        // API Key 验证（排除获取 key 的端点）
-        if (path.substr(0, 5) == "/api/" && path != "/api/key") {
+        // API Key 验证（排除获取 key 和 status 的端点）
+        if (path.substr(0, 5) == "/api/" &&
+            path != "/api/key" && path != "/api/apikey-status") {
             if (!verifyApiKey(conn)) return true;
         }
         
@@ -687,8 +688,9 @@ public:
 
     bool handlePost(CivetServer* server, struct mg_connection* conn,
                     const std::string& path, const std::string& body) override {
-        // API Key 验证
-        if (path.substr(0, 5) == "/api/") {
+        // API Key 验证（apikey-toggle、key、setkey 不需要验证）
+        if (path.substr(0, 5) == "/api/" &&
+            path != "/api/apikey-toggle" && path != "/api/key" && path != "/api/apikey-setkey") {
             if (!verifyApiKey(conn)) return true;
         }
 
@@ -921,6 +923,50 @@ public:
             return true;
         }
 
+        // 设置自定义 API Key
+        if (path == "/api/apikey-setkey") {
+            // body: "key=xxx" 或 "{\"key\":\"xxx\"}"
+            std::string new_key;
+            size_t pos = body.find("key=");
+            if (pos != std::string::npos) {
+                new_key = body.substr(pos + 4);
+                // URL 解码
+                std::string decoded;
+                for (size_t i = 0; i < new_key.size(); i++) {
+                    if (new_key[i] == '%' && i + 2 < new_key.size()) {
+                        char hex[3] = {new_key[i+1], new_key[i+2], 0};
+                        decoded += (char)strtol(hex, nullptr, 16);
+                        i += 2;
+                    } else if (new_key[i] == '+') {
+                        decoded += ' ';
+                    } else {
+                        decoded += new_key[i];
+                    }
+                }
+                new_key = decoded;
+            }
+            if (!new_key.empty()) {
+                g_api_key = new_key;
+                // 保存到文件
+                char key_path[512];
+                snprintf(key_path, sizeof(key_path), "%s/api_key", g_module_dir.c_str());
+                int fd = open(key_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+                if (fd >= 0) {
+                    write(fd, g_api_key.c_str(), g_api_key.size());
+                    close(fd);
+                }
+                int ofd = open("/data/adb/proc_monitor_api_key", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (ofd >= 0) {
+                    write(ofd, g_api_key.c_str(), g_api_key.size());
+                    close(ofd);
+                }
+                kernel_module::webui::send_text(conn, 200, "{\"ok\":true}");
+            } else {
+                kernel_module::webui::send_text(conn, 400, "{\"error\":\"empty key\"}");
+            }
+            return true;
+        }
+
         // 结束进程 - 安全实现
         if (path == "/api/kill-process") {
             // body 格式: "uid=10123" 或 "{\"uid\":10123}"
@@ -1064,7 +1110,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("3.5.29")
+SKROOT_MODULE_VERSION("3.5.30")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")
