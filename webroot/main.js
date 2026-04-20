@@ -64,18 +64,9 @@ async function apiGet(path) {
       method: 'GET',
       headers: getHeaders()
     });
-    if (!resp.ok) {
-      const dbg = document.getElementById('debugLog');
-      if (dbg) dbg.innerHTML += '<span style="color:#f44">[ERR] ' + path + ' HTTP ' + resp.status + '</span><br>';
-      throw new Error(`HTTP ${resp.status}`);
-    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.text();
-  } catch (e) {
-    const dbg = document.getElementById('debugLog');
-    if (dbg) dbg.innerHTML += '<span style="color:#f44">[ERR] ' + path + ': ' + e.message + '</span><br>';
-    console.error(`API GET [${path}]:`, e);
-    return null;
-  }
+  } catch (e) { console.error(`API GET [${path}]:`, e); return null; }
 }
 
 // 纯 POST 请求
@@ -867,62 +858,36 @@ function uidName(uid) { if (uid === 0) return 'root'; if (uid >= 10000 && uid < 
 
 // ============ API Key 初始化 ============
 async function initApiKey() {
-  let dbg = document.getElementById('debugLog');
-  if (!dbg) {
-    dbg = document.createElement('div');
-    dbg.id = 'debugLog';
-    dbg.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#000;color:#0f0;padding:8px;font-size:11px;z-index:9999;max-height:50vh;overflow:auto;font-family:monospace;';
-    document.body.prepend(dbg);
-  }
-  function log(msg) { dbg.innerHTML += msg + '<br>'; console.log(msg); }
-  
-  log('[v3.5.38] initApiKey start');
-  
   // 检测 API Key 是否启用：尝试调 /api/config
   // - 200 → 未启用
   // - 401 → 启用了，需要输入 Key
   let apiKeyEnabled = false;
   try {
-    log('[2] trying /api/config (no key)');
     const resp = await fetch(new URL('/api/config', window.location.href));
-    log('[3] status: ' + resp.status);
     if (resp.status === 401) {
       apiKeyEnabled = true;
-      log('[4] got 401 → API Key is enabled!');
     } else if (resp.ok) {
       const text = await resp.text();
       try {
         const d = JSON.parse(text);
         apiKeyEnabled = d.api_key_enabled === true;
-        log('[4] api_key_enabled from config: ' + apiKeyEnabled);
       } catch(e) {}
     }
-  } catch (e) {
-    log('[ERR] ' + e.message);
-  }
+  } catch (e) {}
   
-  if (!apiKeyEnabled) {
-    log('[5] not enabled, skip popup');
-    return;
-  }
+  if (!apiKeyEnabled) return;
   
-  log('[5] enabled! showing modal');
+  // API Key 已启用 - 弹窗让用户确认/输入
   const savedKey = localStorage.getItem('skroot_api_key') || '';
-  log('[6] savedKey exists: ' + (savedKey ? 'YES' : 'NO'));
-  
   const modal = document.getElementById('apiKeyModal');
-  const display = document.getElementById('apiKeyAutoDisplay');
-  const input = document.getElementById('apiKeyInput');
+  if (!modal) return;
   
-  if (!modal) { log('[ERR] apiKeyModal not found!'); return; }
-  
-  display.textContent = savedKey ? '当前 Key: ' + savedKey.substring(0, 8) + '...' : '(未保存的 Key)';
-  input.value = savedKey;
+  document.getElementById('apiKeyAutoDisplay').textContent = savedKey ? '当前 Key: ' + savedKey.substring(0, 8) + '...' : '(未保存的 Key)';
+  document.getElementById('apiKeyInput').value = savedKey;
   modal.style.display = 'flex';
-  log('[7] modal shown');
   
   if (!savedKey) {
-    input.focus();
+    document.getElementById('apiKeyInput').focus();
   }
   window._needApiKey = false;
 }
