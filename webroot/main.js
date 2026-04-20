@@ -742,6 +742,7 @@ async function useAutoApiKey() {
   apiKey = pendingAutoKey;
   localStorage.setItem('skroot_api_key', apiKey);
   pendingAutoKey = '';
+  window._needApiKey = false;
   document.getElementById('apiKeyModal').style.display = 'none';
   showToast('已启用自动生成的 API Key');
 }
@@ -754,10 +755,14 @@ async function useCustomApiKey() {
   }
   apiKey = input;
   localStorage.setItem('skroot_api_key', apiKey);
-  await apiPost('/api/apikey-setkey', 'key=' + encodeURIComponent(apiKey));
+  // 如果是首次设置（不是重新输入），需要同步到后端
+  if (!window._needApiKey) {
+    await apiPost('/api/apikey-setkey', 'key=' + encodeURIComponent(apiKey));
+  }
   pendingAutoKey = '';
+  window._needApiKey = false;
   document.getElementById('apiKeyModal').style.display = 'none';
-  showToast('已使用自定义 API Key');
+  showToast('API Key 已设置');
 }
 
 // 加载 API Key 状态
@@ -856,19 +861,15 @@ async function initApiKey() {
     return;
   }
   
-  // 如果启用了 API Key 但没有存储的 Key，静默尝试获取
+  // API Key 已启用，检查本地是否存储了 Key
   if (!apiKey) {
-    try {
-      const resp = await fetch(new URL('/api/key', window.location.href));
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.key) {
-          setApiKey(data.key);
-          console.log('API Key auto-initialized');
-          return;
-        }
-      }
-    } catch (e) {}
+    // 本地没有 Key，弹窗让用户输入
+    document.getElementById('apiKeyAutoDisplay').textContent = '(重新打开页面需要输入之前的 Key)';
+    document.getElementById('apiKeyInput').value = '';
+    document.getElementById('apiKeyModal').style.display = 'flex';
+    document.getElementById('apiKeyInput').focus();
+    // 标记为需要输入 Key 才能继续
+    window._needApiKey = true;
   }
 }
 
