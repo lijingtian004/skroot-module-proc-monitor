@@ -157,7 +157,7 @@ static std::string build_power_json(const std::vector<AppPowerInfo>& apps) {
     
     // 检查是否启用双电芯
     bool dual_battery = false;
-    FILE* rf = fopen("/data/adb/proc_monitor_config", "r");
+    FILE* rf = fopen("/storage/emulated/0/SKMonitor/proc_monitor_config", "r");
     if (rf) {
         char line[256];
         while (fgets(line, sizeof(line), rf)) {
@@ -209,7 +209,7 @@ static std::string build_overlay_json() {
     
     // 检查是否启用双电芯
     bool dual_battery = false;
-    FILE* rf = fopen("/data/adb/proc_monitor_config", "r");
+    FILE* rf = fopen("/storage/emulated/0/SKMonitor/proc_monitor_config", "r");
     if (rf) {
         char line[256];
         while (fgets(line, sizeof(line), rf)) {
