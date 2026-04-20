@@ -295,31 +295,12 @@ void proc_scanner_scan_once() {
     scan_proc_dir();
 }
 
-// 从 /proc/stat 读取总 CPU 时间（所有核心累加，单位秒）
-static double read_total_cpu_sec() {
-    FILE* f = fopen("/proc/stat", "r");
-    if (!f) return 0;
-    char line[256];
-    if (!fgets(line, sizeof(line), f)) { fclose(f); return 0; }
-    fclose(f);
-    // 格式: cpu  user nice system idle iowait irq softirq steal
-    unsigned long user, nice, sys, idle, iowait, irq, softirq, steal;
-    int n = sscanf(line, "cpu %lu %lu %lu %lu %lu %lu %lu %lu",
-                   &user, &nice, &sys, &idle, &iowait, &irq, &softirq, &steal);
-    if (n < 4) return 0;
-    long clk = sysconf(_SC_CLK_TCK);
-    if (clk <= 0) clk = 100;
-    unsigned long total = user + nice + sys + idle;
-    if (n >= 5) total += iowait;
-    if (n >= 6) total += irq;
-    if (n >= 7) total += softirq;
-    if (n >= 8) total += steal;
-    return (double)total / (double)clk;
-}
+// 前向声明（定义在文件后部）
+static double read_proc_cpu_time(pid_t pid);
+static double read_total_cpu_sec();
 
 // 进程 CPU 时间缓存（用于计算增量）
 static std::unordered_map<pid_t, double> g_prev_proc_cpu;
-static double g_prev_total_cpu_sec = 0;
 
 std::vector<ProcInfo> proc_scanner_get_all_procs() {
     // 读取当前总 CPU 时间
