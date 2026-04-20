@@ -154,6 +154,21 @@ static std::string build_power_json(const std::vector<AppPowerInfo>& apps) {
     if (ch.battery_current_ma != -1 && ch.battery_voltage_mv != -1) {
         sys_mw = (double)abs(ch.battery_current_ma) * (double)ch.battery_voltage_mv / 1000.0;
     }
+    
+    // 检查是否启用双电芯
+    bool dual_battery = false;
+    FILE* rf = fopen("/data/adb/proc_monitor_config", "r");
+    if (rf) {
+        char line[256];
+        while (fgets(line, sizeof(line), rf)) {
+            if (strncmp(line, "dual_battery=", 13) == 0) {
+                dual_battery = (atoi(line + 13) == 1);
+            }
+        }
+        fclose(rf);
+    }
+    // 双电芯模式功耗乘以2
+    if (dual_battery) sys_mw *= 2;
 
     cJSON* obj = cJSON_CreateObject();
     cJSON_AddNumberToObject(obj, "system_power_mw", (int)(sys_mw * 10) / 10.0);
@@ -191,6 +206,20 @@ static std::string build_power_json(const std::vector<AppPowerInfo>& apps) {
 
 static std::string build_overlay_json() {
     OverlayData od = overlay_get_data();
+    
+    // 检查是否启用双电芯
+    bool dual_battery = false;
+    FILE* rf = fopen("/data/adb/proc_monitor_config", "r");
+    if (rf) {
+        char line[256];
+        while (fgets(line, sizeof(line), rf)) {
+            if (strncmp(line, "dual_battery=", 13) == 0) {
+                dual_battery = (atoi(line + 13) == 1);
+            }
+        }
+        fclose(rf);
+    }
+    
     cJSON* o = cJSON_CreateObject();
     cJSON_AddNumberToObject(o, "cpu_total", (int)(od.cpu_total_pct * 10) / 10.0);
     cJSON* cores = cJSON_CreateArray();
@@ -204,7 +233,9 @@ static std::string build_overlay_json() {
         cJSON_AddNumberToObject(o, "gpu_pct", -1);
         cJSON_AddStringToObject(o, "gpu_name", "");
     }
-    cJSON_AddNumberToObject(o, "power_mw", (int)(od.power_mw * 10) / 10.0);
+    // 双电芯模式功耗乘以2
+    double display_power = dual_battery ? od.power_mw * 2 : od.power_mw;
+    cJSON_AddNumberToObject(o, "power_mw", (int)(display_power * 10) / 10.0);
     cJSON_AddNumberToObject(o, "bat_level", od.battery_level);
     cJSON_AddNumberToObject(o, "bat_temp", od.battery_temp);
     cJSON_AddStringToObject(o, "bat_status", od.battery_status);

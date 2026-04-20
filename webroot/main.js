@@ -415,7 +415,10 @@ function renderProcItem(p) {
   div.className = 'event-item';
   div.onclick = () => showProcDetail(p);
   const cmd = p.cmdline ? esc(p.cmdline.substring(0, 60)) : '';
-  const cpuStr = p.cpu_pct !== undefined ? `${p.cpu_pct.toFixed(1)}%` : '';
+  // 限制CPU最大显示100%
+  let cpuPct = p.cpu_pct || 0;
+  if (cpuPct > 100) cpuPct = 100;
+  const cpuStr = p.cpu_pct !== undefined ? `${cpuPct.toFixed(1)}%` : '';
   div.innerHTML = `
     <div class="event-body">
       <div class="event-main"><span class="comm">${esc(p.comm)}</span><span class="pid">PID ${p.pid}</span></div>
