@@ -878,16 +878,24 @@ async function initApiKey() {
   
   log('[1] initApiKey start');
   
-  // 先检查 API Key 是否启用
+  // 检测 API Key 是否启用：尝试调 /api/config
+  // - 200 → 未启用
+  // - 401 → 启用了，需要输入 Key
   let apiKeyEnabled = false;
   try {
-    log('[2] calling apiGet /api/apikey-status');
-    const statusResp = await apiGet('/api/apikey-status');
-    log('[3] response: ' + (statusResp || 'null'));
-    if (statusResp) {
-      const statusData = JSON.parse(statusResp);
-      apiKeyEnabled = statusData.enabled === true;
-      log('[4] enabled=' + apiKeyEnabled);
+    log('[2] trying /api/config (no key)');
+    const resp = await fetch(new URL('/api/config', window.location.href));
+    log('[3] status: ' + resp.status);
+    if (resp.status === 401) {
+      apiKeyEnabled = true;
+      log('[4] got 401 → API Key is enabled!');
+    } else if (resp.ok) {
+      const text = await resp.text();
+      try {
+        const d = JSON.parse(text);
+        apiKeyEnabled = d.api_key_enabled === true;
+        log('[4] api_key_enabled from config: ' + apiKeyEnabled);
+      } catch(e) {}
     }
   } catch (e) {
     log('[ERR] ' + e.message);
@@ -906,15 +914,12 @@ async function initApiKey() {
   const display = document.getElementById('apiKeyAutoDisplay');
   const input = document.getElementById('apiKeyInput');
   
-  if (!modal) { log('[ERR] apiKeyModal element not found!'); return; }
-  if (!display) { log('[ERR] apiKeyAutoDisplay element not found!'); return; }
-  if (!input) { log('[ERR] apiKeyInput element not found!'); return; }
+  if (!modal) { log('[ERR] apiKeyModal not found!'); return; }
   
-  log('[7] all elements found, showing modal');
   display.textContent = savedKey ? '当前 Key: ' + savedKey.substring(0, 8) + '...' : '(未保存的 Key)';
   input.value = savedKey;
   modal.style.display = 'flex';
-  log('[8] modal display set to flex');
+  log('[7] modal shown');
   
   if (!savedKey) {
     input.focus();
