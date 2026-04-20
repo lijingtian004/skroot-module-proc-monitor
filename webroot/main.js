@@ -858,42 +858,54 @@ function uidName(uid) { if (uid === 0) return 'root'; if (uid >= 10000 && uid < 
 
 // ============ API Key 初始化 ============
 async function initApiKey() {
-  console.log('[initApiKey] start');
+  let dbg = document.getElementById('debugLog');
+  if (!dbg) {
+    dbg = document.createElement('div');
+    dbg.id = 'debugLog';
+    dbg.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#000;color:#0f0;padding:8px;font-size:11px;z-index:9999;max-height:50vh;overflow:auto;font-family:monospace;';
+    document.body.prepend(dbg);
+  }
+  function log(msg) { dbg.innerHTML += msg + '<br>'; console.log(msg); }
+  
+  log('[1] initApiKey start');
   
   // 先检查 API Key 是否启用
   let apiKeyEnabled = false;
   try {
+    log('[2] calling apiGet /api/apikey-status');
     const statusResp = await apiGet('/api/apikey-status');
-    console.log('[initApiKey] apikey-status response:', statusResp);
+    log('[3] response: ' + (statusResp || 'null'));
     if (statusResp) {
       const statusData = JSON.parse(statusResp);
       apiKeyEnabled = statusData.enabled === true;
-      console.log('[initApiKey] enabled:', apiKeyEnabled);
+      log('[4] enabled=' + apiKeyEnabled);
     }
   } catch (e) {
-    console.error('[initApiKey] apikey-status error:', e);
+    log('[ERR] ' + e.message);
   }
   
-  // 如果 API Key 未启用，直接返回
   if (!apiKeyEnabled) {
-    console.log('[initApiKey] not enabled, skip');
+    log('[5] not enabled, skip popup');
     return;
   }
   
-  // API Key 已启用 - 每次打开页面都弹窗让用户确认/输入
+  log('[5] enabled! showing modal');
   const savedKey = localStorage.getItem('skroot_api_key') || '';
-  console.log('[initApiKey] showing modal, savedKey:', savedKey ? 'yes' : 'no');
+  log('[6] savedKey exists: ' + (savedKey ? 'YES' : 'NO'));
   
   const modal = document.getElementById('apiKeyModal');
   const display = document.getElementById('apiKeyAutoDisplay');
   const input = document.getElementById('apiKeyInput');
   
-  if (!modal) { console.error('[initApiKey] apiKeyModal not found!'); return; }
+  if (!modal) { log('[ERR] apiKeyModal element not found!'); return; }
+  if (!display) { log('[ERR] apiKeyAutoDisplay element not found!'); return; }
+  if (!input) { log('[ERR] apiKeyInput element not found!'); return; }
   
+  log('[7] all elements found, showing modal');
   display.textContent = savedKey ? '当前 Key: ' + savedKey.substring(0, 8) + '...' : '(未保存的 Key)';
   input.value = savedKey;
   modal.style.display = 'flex';
-  console.log('[initApiKey] modal shown');
+  log('[8] modal display set to flex');
   
   if (!savedKey) {
     input.focus();
