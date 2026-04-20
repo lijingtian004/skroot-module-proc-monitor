@@ -64,9 +64,18 @@ async function apiGet(path) {
       method: 'GET',
       headers: getHeaders()
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) {
+      const dbg = document.getElementById('debugLog');
+      if (dbg) dbg.innerHTML += '<span style="color:#f44">[ERR] ' + path + ' HTTP ' + resp.status + '</span><br>';
+      throw new Error(`HTTP ${resp.status}`);
+    }
     return await resp.text();
-  } catch (e) { console.error(`API GET [${path}]:`, e); return null; }
+  } catch (e) {
+    const dbg = document.getElementById('debugLog');
+    if (dbg) dbg.innerHTML += '<span style="color:#f44">[ERR] ' + path + ': ' + e.message + '</span><br>';
+    console.error(`API GET [${path}]:`, e);
+    return null;
+  }
 }
 
 // 纯 POST 请求
