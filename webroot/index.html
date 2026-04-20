@@ -199,8 +199,9 @@
         <div class="apikey-divider"><span>或输入自定义 Key</span></div>
         <input type="text" id="apiKeyInput" class="apikey-input" placeholder="输入自定义 API Key（≥8位）" autocomplete="off" spellcheck="false">
         <div class="apikey-actions">
+          <button class="btn btn-secondary" onclick="useCurrentApiKey()">使用当前 Key</button>
           <button class="btn btn-secondary" onclick="useAutoApiKey()">使用自动生成</button>
-          <button class="btn btn-primary" onclick="useCustomApiKey()">使用自定义</button>
+          <button class="btn btn-primary" onclick="useCustomApiKey()">确认</button>
         </div>
       </div>
     </div>

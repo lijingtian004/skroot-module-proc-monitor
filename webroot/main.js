@@ -738,6 +738,19 @@ function closeApiKeyModal() {
   }
 }
 
+// 使用当前存储的 Key（重新打开页面时快速确认）
+function useCurrentApiKey() {
+  const savedKey = localStorage.getItem('skroot_api_key') || '';
+  if (savedKey) {
+    apiKey = savedKey;
+    document.getElementById('apiKeyModal').style.display = 'none';
+    showToast('已使用当前 Key');
+  } else {
+    showToast('没有保存的 Key，请输入');
+    document.getElementById('apiKeyInput').focus();
+  }
+}
+
 async function useAutoApiKey() {
   apiKey = pendingAutoKey;
   localStorage.setItem('skroot_api_key', apiKey);
@@ -856,21 +869,17 @@ async function initApiKey() {
   } catch (e) {}
   
   // 如果 API Key 未启用，直接返回
-  if (!apiKeyEnabled) {
-    console.log('API Key not enabled, skipping authentication');
-    return;
-  }
+  if (!apiKeyEnabled) return;
   
-  // API Key 已启用，检查本地是否存储了 Key
-  if (!apiKey) {
-    // 本地没有 Key，弹窗让用户输入
-    document.getElementById('apiKeyAutoDisplay').textContent = '(重新打开页面需要输入之前的 Key)';
-    document.getElementById('apiKeyInput').value = '';
-    document.getElementById('apiKeyModal').style.display = 'flex';
+  // API Key 已启用 - 每次打开页面都弹窗让用户确认/输入
+  const savedKey = localStorage.getItem('skroot_api_key') || '';
+  document.getElementById('apiKeyAutoDisplay').textContent = savedKey ? '当前 Key: ' + savedKey.substring(0, 8) + '...' : '(未保存的 Key)';
+  document.getElementById('apiKeyInput').value = savedKey;
+  document.getElementById('apiKeyModal').style.display = 'flex';
+  if (!savedKey) {
     document.getElementById('apiKeyInput').focus();
-    // 标记为需要输入 Key 才能继续
-    window._needApiKey = true;
   }
+  window._needApiKey = false; // 这是确认/修改场景
 }
 
 // ============ Init ============
