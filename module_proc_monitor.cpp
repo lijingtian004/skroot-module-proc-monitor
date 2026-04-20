@@ -1111,26 +1111,30 @@ public:
                         
                         // 如果 UID 匹配，杀掉进程
                         if (proc_uid == uid && proc_pid > 1) {
-                            kill(proc_pid, SIGKILL);  // SIGKILL = 9
-                            success = true;
+                            // 保护：跳过 SKRoot 相关进程
+                            char cmd_path[64];
+                            snprintf(cmd_path, sizeof(cmd_path), "/proc/%d/cmdline", proc_pid);
+                            FILE* cf = fopen(cmd_path, "r");
+                            bool skip = false;
+                            if (cf) {
+                                char cmd[256] = {0};
+                                fread(cmd, 1, sizeof(cmd) - 1, cf);
+                                fclose(cf);
+                                if (strstr(cmd, "webui") || strstr(cmd, "skroot") || strstr(cmd, "module_proc")) {
+                                    skip = true;
+                                }
+                            }
+                            if (!skip) {
+                                kill(proc_pid, SIGKILL);  // SIGKILL = 9
+                                success = true;
+                            }
                         }
                     }
                 }
                 closedir(proc_dir);
             }
             
-            // 方式3: 使用 pkill 作为后备方案
-            {
-                pid_t pid = fork();
-                if (pid == 0) {
-                    char uid_arg[16];
-                    snprintf(uid_arg, sizeof(uid_arg), "%d", uid);
-                    execlp("pkill", "pkill", "-9", "-U", uid_arg, nullptr);
-                    _exit(1);
-                } else if (pid > 0) {
-                    waitpid(pid, nullptr, 0);
-                }
-            }
+            // 方式3 已移除（pkill 会连带杀掉 SKRoot 进程导致重启）
 
             snprintf(resp, sizeof(resp), "{\"success\":%s,\"uid\":%d,\"package\":\"%s\"}",
                      success ? "true" : "false", uid, valid_pkg ? pkg : "");
