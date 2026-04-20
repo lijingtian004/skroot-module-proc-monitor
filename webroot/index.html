@@ -186,6 +186,26 @@
     </div>
   </div>
 
+  <!-- API Key 设置弹窗 -->
+  <div class="modal-overlay" id="apiKeyModal" style="display:none" onclick="closeApiKeyModal()">
+    <div class="modal apikey-modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3>API Key 设置</h3>
+        <button class="modal-close" onclick="closeApiKeyModal()">✕</button>
+      </div>
+      <div class="modal-body apikey-body">
+        <p class="apikey-desc">自动生成的 Key（点击下方可输入自定义 Key）：</p>
+        <div class="apikey-auto" id="apiKeyAutoDisplay"></div>
+        <div class="apikey-divider"><span>或输入自定义 Key</span></div>
+        <input type="text" id="apiKeyInput" class="apikey-input" placeholder="输入自定义 API Key（≥8位）" autocomplete="off" spellcheck="false">
+        <div class="apikey-actions">
+          <button class="btn btn-secondary" onclick="useAutoApiKey()">使用自动生成</button>
+          <button class="btn btn-primary" onclick="useCustomApiKey()">使用自定义</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="main.js"></script>
 </body>
 </html>

@@ -683,36 +683,81 @@ async function fetchConfig() {
   } catch(e) {}
 }
 
+// 存储自动生成的 key 供弹窗使用
+let pendingAutoKey = '';
+
 async function toggleApiKey() {
   const toggle = document.getElementById('apiKeyToggle');
-  const val = toggle.checked ? '1' : '0';
-  const resp = await apiPost('/api/apikey-toggle', 'enabled=' + val);
-  try {
-    const d = JSON.parse(resp);
-    if (d.enabled && d.key) {
-      // 弹窗让用户选择：使用自定义 Key 或自动生成的 Key
-      const customKey = prompt('API Key 已自动生成\n\n点击确定使用自定义 Key，或取消使用自动生成的 Key\n\n自动生成: ' + d.key.substring(0, 8) + '...');
-      if (customKey && customKey.trim().length >= 8) {
-        // 用户输入了自定义 Key，需要重新设置
-        apiKey = customKey.trim();
-        localStorage.setItem('skroot_api_key', apiKey);
-        // 通知后端更新 Key
-        await apiPost('/api/apikey-setkey', 'key=' + encodeURIComponent(apiKey));
-        alert('已使用自定义 API Key');
-      } else {
-        apiKey = d.key;
-        localStorage.setItem('skroot_api_key', d.key);
-        alert('已启用自动生成的 API Key: ' + d.key.substring(0, 8) + '...');
+  if (toggle.checked) {
+    // 开启 - 先 POST 获取自动生成的 key
+    const resp = await apiPost('/api/apikey-toggle', 'enabled=1');
+    try {
+      const d = JSON.parse(resp);
+      if (d.enabled && d.key) {
+        pendingAutoKey = d.key;
+        // 显示自定义弹窗
+        document.getElementById('apiKeyAutoDisplay').textContent = d.key;
+        document.getElementById('apiKeyInput').value = '';
+        document.getElementById('apiKeyModal').style.display = 'flex';
+        document.getElementById('apiKeyInput').focus();
       }
-    } else {
-      apiKey = '';
-      localStorage.removeItem('skroot_api_key');
-      alert('API Key 认证已关闭');
+    } catch(e) {
+      console.error('toggleApiKey error:', e);
+      toggle.checked = false;
     }
-  } catch(e) {
-    console.error('toggleApiKey error:', e);
+  } else {
+    // 关闭 - 需要已认证
+    const resp = await apiPost('/api/apikey-toggle', 'enabled=0');
+    if (!resp) {
+      showToast('操作失败：需要 API Key 认证');
+      toggle.checked = true;
+      lastApiKeyId = true;
+      return;
+    }
+    try {
+      const d = JSON.parse(resp);
+      if (!d.enabled) {
+        apiKey = '';
+        localStorage.removeItem('skroot_api_key');
+        showToast('API Key 认证已关闭');
+      }
+    } catch(e) {
+      showToast('操作失败');
+      toggle.checked = true;
+      lastApiKeyId = true;
+    }
   }
   lastApiKeyId = toggle.checked;
+}
+
+function closeApiKeyModal() {
+  document.getElementById('apiKeyModal').style.display = 'none';
+  // 如果用户关闭弹窗但没选，保持开启状态（使用自动生成的）
+  if (pendingAutoKey && !apiKey) {
+    useAutoApiKey();
+  }
+}
+
+async function useAutoApiKey() {
+  apiKey = pendingAutoKey;
+  localStorage.setItem('skroot_api_key', apiKey);
+  pendingAutoKey = '';
+  document.getElementById('apiKeyModal').style.display = 'none';
+  showToast('已启用自动生成的 API Key');
+}
+
+async function useCustomApiKey() {
+  const input = document.getElementById('apiKeyInput').value.trim();
+  if (input.length < 8) {
+    showToast('自定义 Key 至少需要 8 位');
+    return;
+  }
+  apiKey = input;
+  localStorage.setItem('skroot_api_key', apiKey);
+  await apiPost('/api/apikey-setkey', 'key=' + encodeURIComponent(apiKey));
+  pendingAutoKey = '';
+  document.getElementById('apiKeyModal').style.display = 'none';
+  showToast('已使用自定义 API Key');
 }
 
 // 加载 API Key 状态
@@ -771,7 +816,22 @@ function startPolling() {
   pollTimer = setInterval(pollAll, 5000);
 }
 
-// ============ Helpers ============
+// Toast 通知
+function showToast(msg, duration = 2000) {
+  let t = document.getElementById('toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface-3);color:var(--text-1);padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;opacity:0;transition:opacity .2s;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.3);';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.style.opacity = '0', duration);
+}
+
+// ============
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function fmtN(n) { return n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
 function fmtTime(ts) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }

@@ -542,7 +542,7 @@ public:
 
     bool handleGet(CivetServer* server, struct mg_connection* conn,
                    const std::string& path, const std::string& query) override {
-        // API Key 验证（排除获取 key 和 status 的端点）
+        // API Key 验证（key 和 apikey-status 始终豁免）
         if (path.substr(0, 5) == "/api/" &&
             path != "/api/key" && path != "/api/apikey-status") {
             if (!verifyApiKey(conn)) return true;
@@ -688,10 +688,15 @@ public:
 
     bool handlePost(CivetServer* server, struct mg_connection* conn,
                     const std::string& path, const std::string& body) override {
-        // API Key 验证（apikey-toggle、key、setkey 不需要验证）
+        // API Key 验证（apikey-toggle 仅在未启用时免验证，其他豁免端点正常豁免）
         if (path.substr(0, 5) == "/api/" &&
-            path != "/api/apikey-toggle" && path != "/api/key" && path != "/api/apikey-setkey") {
-            if (!verifyApiKey(conn)) return true;
+            path != "/api/key" && path != "/api/apikey-status" && path != "/api/apikey-setkey") {
+            // apikey-toggle: 只有当前未启用时才免验证（允许首次开启）
+            if (path == "/api/apikey-toggle" && !g_api_key_enabled) {
+                // 免验证 - 允许首次开启
+            } else if (!verifyApiKey(conn)) {
+                return true;
+            }
         }
 
         if (path == "/api/events") {
@@ -1110,7 +1115,7 @@ public:
 
 // 生成 UUID: python3 -c "import uuid; print(uuid.uuid4().hex)"
 SKROOT_MODULE_NAME("进程行为监控")
-SKROOT_MODULE_VERSION("3.5.30")
+SKROOT_MODULE_VERSION("3.5.31")
 SKROOT_MODULE_DESC("实时监控进程创建/退出，自动检测 Root 检测工具和可疑进程，提供 WebUI 仪表盘")
 SKROOT_MODULE_AUTHOR("SKRoot Pro")
 SKROOT_MODULE_UUID32("a7c3e1f84b2d4e9f1a6c8d5b3e7f2a90")
