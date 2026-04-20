@@ -858,28 +858,47 @@ function uidName(uid) { if (uid === 0) return 'root'; if (uid >= 10000 && uid < 
 
 // ============ API Key 初始化 ============
 async function initApiKey() {
+  console.log('[initApiKey] start');
+  
   // 先检查 API Key 是否启用
   let apiKeyEnabled = false;
   try {
     const statusResp = await apiGet('/api/apikey-status');
+    console.log('[initApiKey] apikey-status response:', statusResp);
     if (statusResp) {
       const statusData = JSON.parse(statusResp);
       apiKeyEnabled = statusData.enabled === true;
+      console.log('[initApiKey] enabled:', apiKeyEnabled);
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('[initApiKey] apikey-status error:', e);
+  }
   
   // 如果 API Key 未启用，直接返回
-  if (!apiKeyEnabled) return;
+  if (!apiKeyEnabled) {
+    console.log('[initApiKey] not enabled, skip');
+    return;
+  }
   
   // API Key 已启用 - 每次打开页面都弹窗让用户确认/输入
   const savedKey = localStorage.getItem('skroot_api_key') || '';
-  document.getElementById('apiKeyAutoDisplay').textContent = savedKey ? '当前 Key: ' + savedKey.substring(0, 8) + '...' : '(未保存的 Key)';
-  document.getElementById('apiKeyInput').value = savedKey;
-  document.getElementById('apiKeyModal').style.display = 'flex';
+  console.log('[initApiKey] showing modal, savedKey:', savedKey ? 'yes' : 'no');
+  
+  const modal = document.getElementById('apiKeyModal');
+  const display = document.getElementById('apiKeyAutoDisplay');
+  const input = document.getElementById('apiKeyInput');
+  
+  if (!modal) { console.error('[initApiKey] apiKeyModal not found!'); return; }
+  
+  display.textContent = savedKey ? '当前 Key: ' + savedKey.substring(0, 8) + '...' : '(未保存的 Key)';
+  input.value = savedKey;
+  modal.style.display = 'flex';
+  console.log('[initApiKey] modal shown');
+  
   if (!savedKey) {
-    document.getElementById('apiKeyInput').focus();
+    input.focus();
   }
-  window._needApiKey = false; // 这是确认/修改场景
+  window._needApiKey = false;
 }
 
 // ============ Init ============
