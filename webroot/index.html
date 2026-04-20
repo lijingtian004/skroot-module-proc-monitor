@@ -130,11 +130,8 @@
           <span class="section-label">进程概况</span>
         </div>
         <div class="summary-grid" id="overviewSummary">
-          <div class="summary-item"><span class="summary-dot dot-system"></span><span class="summary-name">System</span><span class="summary-val" id="sumSystem">0</span></div>
-          <div class="summary-item"><span class="summary-dot dot-service"></span><span class="summary-name">Service</span><span class="summary-val" id="sumService">0</span></div>
-          <div class="summary-item"><span class="summary-dot dot-app"></span><span class="summary-name">App</span><span class="summary-val" id="sumApp">0</span></div>
-          <div class="summary-item"><span class="summary-dot dot-shell"></span><span class="summary-name">Shell</span><span class="summary-val" id="sumShell">0</span></div>
-          <div class="summary-item"><span class="summary-dot dot-risky"></span><span class="summary-name">Risky</span><span class="summary-val" id="sumRisky">0</span></div>
+          <div class="summary-item"><span class="summary-dot dot-system"></span><span class="summary-name">系统级</span><span class="summary-val" id="sumSystem">0</span></div>
+          <div class="summary-item"><span class="summary-dot dot-app"></span><span class="summary-name">第三方</span><span class="summary-val" id="sumThirdParty">0</span></div>
         </div>
       </div>
 
@@ -156,8 +153,8 @@
         <button class="btn-sm" onclick="fetchProcs()">刷新</button>
       </div>
       <div class="cat-bar">
-        <button class="cat-btn active" data-cat="app" onclick="switchProcCat('app')"><span class="cat-label">第三方</span><span class="cat-count" id="catApp">0</span></button>
-        <button class="cat-btn" data-cat="system" onclick="switchProcCat('system')"><span class="cat-label">系统</span><span class="cat-count" id="catSystem">0</span></button>
+        <button class="cat-btn active" data-cat="third-party" onclick="switchProcCat('third-party')"><span class="cat-label">第三方</span><span class="cat-count" id="catThirdParty">0</span></button>
+        <button class="cat-btn" data-cat="system" onclick="switchProcCat('system')"><span class="cat-label">系统级</span><span class="cat-count" id="catSystem">0</span></button>
         <button class="cat-btn" data-cat="all" onclick="switchProcCat('all')"><span class="cat-label">全部</span></button>
       </div>
       <div class="proc-count" id="procCount">加载中...</div>

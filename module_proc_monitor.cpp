@@ -83,6 +83,7 @@ static std::string build_procs_json(const std::vector<ProcInfo>& procs) {
         cJSON_AddNumberToObject(obj, "uid",  (double)p.uid);
         cJSON_AddStringToObject(obj, "comm", p.comm);
         cJSON_AddStringToObject(obj, "cmdline", p.cmdline);
+        cJSON_AddNumberToObject(obj, "cpu_pct", (int)(p.cpu_usage_pct * 10) / 10.0);
         cJSON_AddItemToArray(arr, obj);
     }
     char* raw = cJSON_PrintUnformatted(arr);
@@ -945,8 +946,10 @@ public:
             }
 
             bool success = false;
+            char resp[256];
+            
+            // 方式1: 使用 am force-stop 结束应用（需要有效的包名）
             if (valid_pkg) {
-                // 安全执行：使用 execlp 替代 popen
                 pid_t pid = fork();
                 if (pid == 0) {
                     // 子进程：直接执行，无 shell
@@ -958,8 +961,45 @@ public:
                     success = WIFEXITED(status) && WEXITSTATUS(status) == 0;
                 }
             }
-
-            // 杀掉该 UID 的所有进程（使用安全方式）
+            
+            // 方式2: 查找并杀掉该 UID 的所有进程
+            // 读取 /proc 目录，找到属于该 UID 的所有进程
+            DIR* proc_dir = opendir("/proc");
+            if (proc_dir) {
+                struct dirent* entry;
+                while ((entry = readdir(proc_dir)) != nullptr) {
+                    // 只处理数字目录（PID）
+                    if (entry->d_name[0] < '0' || entry->d_name[0] > '9') continue;
+                    
+                    pid_t proc_pid = atoi(entry->d_name);
+                    char status_path[256];
+                    snprintf(status_path, sizeof(status_path), "/proc/%d/status", proc_pid);
+                    
+                    FILE* status_file = fopen(status_path, "r");
+                    if (status_file) {
+                        char line[256];
+                        int proc_uid = -1;
+                        
+                        // 读取 UID
+                        while (fgets(line, sizeof(line), status_file)) {
+                            if (strncmp(line, "Uid:", 4) == 0) {
+                                sscanf(line, "Uid:\t%d", &proc_uid);
+                                break;
+                            }
+                        }
+                        fclose(status_file);
+                        
+                        // 如果 UID 匹配，杀掉进程
+                        if (proc_uid == uid && proc_pid > 1) {
+                            kill(proc_pid, SIGKILL);  // SIGKILL = 9
+                            success = true;
+                        }
+                    }
+                }
+                closedir(proc_dir);
+            }
+            
+            // 方式3: 使用 pkill 作为后备方案
             {
                 pid_t pid = fork();
                 if (pid == 0) {
@@ -972,7 +1012,6 @@ public:
                 }
             }
 
-            char resp[256];
             snprintf(resp, sizeof(resp), "{\"success\":%s,\"uid\":%d,\"package\":\"%s\"}",
                      success ? "true" : "false", uid, valid_pkg ? pkg : "");
             kernel_module::webui::send_text(conn, 200, resp);

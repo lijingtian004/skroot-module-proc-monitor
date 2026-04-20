@@ -4,40 +4,20 @@ let allEvents = [];
 let allAlerts = [];
 let allProcs = [];
 let filteredProcs = [];
-let currentProcCat = 'app';
+let currentProcCat = 'third-party';
 let stats = { total: 0, alerts: 0, exec: 0, exit: 0 };
 let currentPage = 'overview';
 let pollTimer = null;
 let chargingInfo = null;
 
 // ============ Process Categories ============
-const RISKY_NAMES = [
-  'magisk', 'magiskd', 'su', 'frida', 'lsposed', 'lsposedd',
-  'riru', 'zygisk', 'shamiko', 'xposed', 'edxposed',
-  'kernelsu', 'apatch', 'strace', 'ltrace', 'gdb', 'gdbserver',
-];
-const SYSTEM_NAMES = [
-  'system_server', 'init', 'zygote', 'zygote64', 'servicemanager',
-  'binder', 'hwservicemanager', 'vndservicemanager', 'ueventd',
-  'logd', 'lmkd', 'installd', 'tombstoned', 'crash_dump',
-  'linker', 'linker64', 'app_process', 'heapprofd',
-];
-const SHELL_NAMES = ['sh', 'bash', 'logcat', 'adb', 'adbd', 'toybox', 'toybox64'];
-
+// 简化为三个分类：第三方、系统级、全部
 function classifyProc(p) {
-  const comm = (p.comm || '').toLowerCase();
-  const cmdline = (p.cmdline || '').toLowerCase();
   const uid = p.uid;
-  for (const name of RISKY_NAMES) {
-    if (comm.includes(name) || cmdline.includes(name)) return 'risky';
-  }
-  if (uid === 0 || uid === 1000) {
-    for (const name of SYSTEM_NAMES) { if (comm.includes(name)) return 'system'; }
-    return 'system';
-  }
-  if (uid === 2000) return 'shell';
-  if (uid >= 10000) return 'app';
-  return 'service';
+  // 系统级进程：UID < 10000
+  if (uid < 10000) return 'system';
+  // 第三方进程：UID >= 10000
+  return 'third-party';
 }
 
 // ============ API ============
@@ -362,13 +342,10 @@ function updateOverviewAlerts() {
 }
 
 function updateOverviewSummary() {
-  const counts = { system: 0, service: 0, app: 0, shell: 0, risky: 0 };
+  const counts = { system: 0, 'third-party': 0 };
   for (const p of allProcs) counts[p.cat]++;
   document.getElementById('sumSystem').textContent = counts.system;
-  document.getElementById('sumService').textContent = counts.service;
-  document.getElementById('sumApp').textContent = counts.app;
-  document.getElementById('sumShell').textContent = counts.shell;
-  document.getElementById('sumRisky').textContent = counts.risky;
+  document.getElementById('sumThirdParty').textContent = counts['third-party'];
 }
 
 function updateOverviewPower() {
@@ -378,7 +355,7 @@ function updateOverviewPower() {
 }
 
 function updateProcCounts() {
-  const counts = { all: allProcs.length, system: 0, service: 0, app: 0, shell: 0, risky: 0 };
+  const counts = { all: allProcs.length, system: 0, 'third-party': 0 };
   for (const p of allProcs) counts[p.cat]++;
   document.querySelectorAll('.cat-btn').forEach(btn => {
     const cat = btn.dataset.cat;
@@ -787,9 +764,24 @@ function uidName(uid) { if (uid === 0) return 'root'; if (uid >= 10000 && uid < 
 
 // ============ API Key 初始化 ============
 async function initApiKey() {
-  // 如果没有存储的 API Key，提示用户输入
+  // 先检查 API Key 是否启用
+  let apiKeyEnabled = false;
+  try {
+    const statusResp = await apiGet('/api/apikey-status');
+    if (statusResp) {
+      const statusData = JSON.parse(statusResp);
+      apiKeyEnabled = statusData.enabled === true;
+    }
+  } catch (e) {}
+  
+  // 如果 API Key 未启用，直接返回
+  if (!apiKeyEnabled) {
+    console.log('API Key not enabled, skipping authentication');
+    return;
+  }
+  
+  // 如果启用了 API Key 但没有存储的 Key，静默尝试获取
   if (!apiKey) {
-    // 尝试自动获取（兼容旧版本，无 key 端点）
     try {
       const resp = await fetch(new URL('/api/key', window.location.href));
       if (resp.ok) {
@@ -801,19 +793,6 @@ async function initApiKey() {
         }
       }
     } catch (e) {}
-    
-    // 提示用户输入
-    const key = prompt('请输入 API Key（首次使用请查看 logcat 模块日志）');
-    if (key) {
-      setApiKey(key);
-      // 验证 key 是否有效
-      const testResp = await apiGet('/api/stats');
-      if (!testResp) {
-        alert('API Key 无效，请重新输入');
-        localStorage.removeItem('skroot_api_key');
-        apiKey = '';
-      }
-    }
   }
 }
 
