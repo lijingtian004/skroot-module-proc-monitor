@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/prctl.h>
 #include <dirent.h>
 #include <fcntl.h>
 
@@ -368,7 +369,8 @@ static void start_overlay() {
 
     pid_t pid = fork();
     if (pid == 0) {
-        // 子进程
+        // 子进程 - 父进程死亡时收到 SIGTERM
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
         setsid();
         execl(bin_path, "skroot_overlay", nullptr);
         _exit(1);
@@ -383,6 +385,37 @@ static void stop_overlay() {
     kill(g_overlay_pid, SIGTERM);
     printf("[overlay] stopped pid=%d\n", g_overlay_pid);
     g_overlay_pid = -1;
+}
+
+// 查找并杀死所有 skroot_overlay 进程
+static void kill_all_overlay_processes() {
+    DIR* dir = opendir("/proc");
+    if (!dir) return;
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != nullptr) {
+        if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
+        pid_t pid = (pid_t)atoi(ent->d_name);
+        if (pid <= 1 || pid == getpid()) continue;
+        char path[256];
+        snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+        FILE* f = fopen(path, "r");
+        if (!f) continue;
+        char cmd[256] = {0};
+        fread(cmd, 1, sizeof(cmd) - 1, f);
+        fclose(f);
+        if (strstr(cmd, "skroot_overlay")) {
+            kill(pid, SIGTERM);
+            printf("[cleanup] killed overlay pid=%d\n", pid);
+        }
+    }
+    closedir(dir);
+}
+
+// 模块退出时清理所有子进程
+static void cleanup_module() {
+    printf("[cleanup] module unloading, killing child processes...\n");
+    stop_overlay();
+    kill_all_overlay_processes();
 }
 
 // ============ 模块入口 ============
@@ -457,8 +490,11 @@ int skroot_module_main(const char* root_key, const char* module_private_dir) {
     // 创建存储目录
     mkdir("/storage/emulated/0/SKMonitor", 0755);
 
-    // 创建存储目录
-    mkdir("/storage/emulated/0/SKMonitor", 0755);
+    // 注册退出清理
+    atexit(cleanup_module);
+
+    // 清理上次残留的 overlay 进程
+    kill_all_overlay_processes();
 
     // 不打印敏感信息（root_key 长度和模块路径）
     LOGI("[module_proc_monitor] initializing...\n");
